@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { MATERIAL_DEFAULTS } from '../config/tuning';
+import { DEG2RAD, type MATERIAL_DEFAULTS } from '../config/tuning';
 
 export type DefaultLitParams = typeof MATERIAL_DEFAULTS;
 
@@ -19,4 +19,16 @@ export function applyDefaultLit(m: THREE.MeshPhysicalMaterial, p: DefaultLitPara
   m.ior = THREE.MathUtils.clamp((1 + r) / (1 - r), 1, 2.333);
   m.emissive.set(p.emissiveColor);
   m.emissiveIntensity = p.emissiveIntensity;
+
+  // UE built-in shading layers. Going from 0 to > 0 recompiles the program (three define switch).
+  m.clearcoat = p.clearCoat;
+  m.clearcoatRoughness = p.clearCoatRoughness;
+  m.sheen = p.fuzzAmount;
+  m.sheenColor.set(p.fuzzColor);
+  m.sheenRoughness = p.fuzzRoughness;
+  m.iridescence = p.thinFilm;
+  m.iridescenceIOR = p.thinFilmIor;
+  m.iridescenceThicknessRange = [100, p.thinFilmThicknessNm]; // without a map three uses the max
+  m.anisotropy = p.anisotropy;
+  m.anisotropyRotation = p.anisotropyRotationDeg * DEG2RAD;
 }

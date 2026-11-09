@@ -8,7 +8,7 @@ import {
 } from './config/tuning';
 import { createPrimitive } from './geometry/primitives';
 import { applyDefaultLit, createDefaultLit } from './materials/defaultLit';
-import { addStylizedLayer, applyStylized } from './materials/stylized';
+import { addStylizedLayer, applyStylized, setStylizedBounds, updateStylizedView } from './materials/stylized';
 import { createPanel } from './ui/panel';
 
 const viewport = document.getElementById('viewport')!;
@@ -79,6 +79,8 @@ const styleUniforms = addStylizedLayer(material);
 const mesh = new THREE.Mesh(createPrimitive(sceneParams.shape), material);
 mesh.castShadow = mesh.receiveShadow = true;
 scene.add(mesh);
+const meshCenter = new THREE.Vector3(); // world space; the mesh has an identity transform
+const sunDir = new THREE.Vector3();
 
 // --- Params -> scene ---
 const toneMappings: Record<ToneMappingName, THREE.ToneMapping> = {
@@ -88,13 +90,18 @@ const toneMappings: Record<ToneMappingName, THREE.ToneMapping> = {
   None: THREE.NoToneMapping,
 };
 
+function updateBounds() {
+  setStylizedBounds(styleUniforms, mesh.geometry);
+  mesh.geometry.boundingBox!.getCenter(meshCenter);
+}
 function applyShape() {
   mesh.geometry.dispose();
   mesh.geometry = createPrimitive(sceneParams.shape);
+  updateBounds();
 }
 function applyMaterial() {
   applyDefaultLit(material, matParams);
-  applyStylized(styleUniforms, styleParams);
+  applyStylized(styleUniforms, styleParams, matParams);
 }
 function applyLight() {
   const az = lightParams.sunAzimuthDeg * DEG2RAD;
@@ -106,6 +113,7 @@ function applyLight() {
   renderer.toneMapping = toneMappings[lightParams.toneMapping];
   renderer.toneMappingExposure = lightParams.exposure;
 }
+updateBounds();
 applyMaterial();
 applyLight();
 
@@ -126,16 +134,37 @@ ui.range('Roughness', matParams, 'roughness', RANGES.roughness, applyMaterial);
 ui.color('Emissive Color', matParams, 'emissiveColor', applyMaterial);
 ui.range('Emissive Int.', matParams, 'emissiveIntensity', RANGES.emissiveIntensity, applyMaterial);
 
+// UE built-in shading layers; apply in both modes.
+ui.section('Shading Layers (UE built-in)');
+ui.range('Clear Coat', matParams, 'clearCoat', RANGES.unit, applyMaterial);
+ui.range('Clear Coat Rough.', matParams, 'clearCoatRoughness', RANGES.unit, applyMaterial);
+ui.range('Fuzz Amount', matParams, 'fuzzAmount', RANGES.unit, applyMaterial);
+ui.color('Fuzz Color', matParams, 'fuzzColor', applyMaterial);
+ui.range('Fuzz Roughness', matParams, 'fuzzRoughness', RANGES.unit, applyMaterial);
+ui.color('Subsurface Color', matParams, 'subsurfaceColor', applyMaterial);
+ui.range('Subsurface Opacity', matParams, 'subsurfaceOpacity', RANGES.subsurfaceOpacity, applyMaterial);
+ui.range('Thin Film', matParams, 'thinFilm', RANGES.unit, applyMaterial);
+ui.range('Thin Film nm', matParams, 'thinFilmThicknessNm', RANGES.thinFilmThicknessNm, applyMaterial);
+ui.range('Thin Film IOR', matParams, 'thinFilmIor', RANGES.thinFilmIor, applyMaterial);
+ui.range('Anisotropy', matParams, 'anisotropy', RANGES.unit, applyMaterial);
+ui.range('Aniso. Rotation°', matParams, 'anisotropyRotationDeg', RANGES.anisotropyRotationDeg, applyMaterial);
+
 // Controls that only apply in stylized mode; hidden otherwise.
 const stylizedControls = [
   ui.section('Stylized (NPR layer)'),
-  ui.range('Toon Blend', styleParams, 'toonBlend', RANGES.toonBlend, applyMaterial),
-  ui.range('Ramp Threshold', styleParams, 'rampThreshold', RANGES.rampThreshold, applyMaterial),
-  ui.range('Ramp Softness', styleParams, 'rampSoftness', RANGES.rampSoftness, applyMaterial),
-  ui.color('Shadow Tint', styleParams, 'shadowTint', applyMaterial),
+  ui.range('Normal Soften', styleParams, 'normalSoften', RANGES.unit, applyMaterial),
+  ui.color('Gradient Color', styleParams, 'gradientColor', applyMaterial),
+  ui.range('Gradient Strength', styleParams, 'gradientStrength', RANGES.unit, applyMaterial),
+  ui.color('Shade Color', styleParams, 'shadeColor', applyMaterial),
+  ui.range('Shade Strength', styleParams, 'shadeStrength', RANGES.stylizeStrength, applyMaterial),
+  ui.color('Terminator Color', styleParams, 'terminatorColor', applyMaterial),
+  ui.range('Terminator Int.', styleParams, 'terminatorIntensity', RANGES.stylizeStrength, applyMaterial),
+  ui.range('Terminator Width', styleParams, 'terminatorWidth', RANGES.terminatorWidth, applyMaterial),
   ui.color('Rim Color', styleParams, 'rimColor', applyMaterial),
   ui.range('Rim Intensity', styleParams, 'rimIntensity', RANGES.rimIntensity, applyMaterial),
   ui.range('Rim Width', styleParams, 'rimWidth', RANGES.rimWidth, applyMaterial),
+  ui.range('Rim Softness', styleParams, 'rimSoftness', RANGES.rimSoftness, applyMaterial),
+  ui.range('Rim Light Side', styleParams, 'rimLightSide', RANGES.rimLightSide, applyMaterial),
 ];
 function showModeControls() {
   for (const el of stylizedControls) el.hidden = styleParams.mode !== 'stylized';
@@ -167,6 +196,8 @@ renderer.setAnimationLoop((t) => {
   last = t;
   if (viewHelper.animating) viewHelper.update(dt);
   controls.update(dt);
+  camera.updateMatrixWorld();
+  updateStylizedView(styleUniforms, sunDir.copy(sun.position).normalize(), meshCenter, camera);
   renderer.clear();
   renderer.render(scene, camera);
   viewHelper.render(renderer);

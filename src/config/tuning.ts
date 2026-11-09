@@ -16,21 +16,40 @@ export const MATERIAL_DEFAULTS = {
   roughness: 0.5,
   emissiveColor: '#ffffff',
   emissiveIntensity: 0,
+  // UE built-in shading layers. All default off, so the result stays plain Default Lit.
+  clearCoat: 0,
+  clearCoatRoughness: 0.1,
+  fuzzAmount: 0, // UE Cloth / Substrate Fuzz
+  fuzzColor: '#ffd6f0',
+  fuzzRoughness: 0.5,
+  subsurfaceColor: '#000000', // UE legacy Subsurface; black = off
+  subsurfaceOpacity: 0.5,
+  thinFilm: 0, // Substrate Thin Film
+  thinFilmThicknessNm: 400,
+  thinFilmIor: 1.3,
+  anisotropy: 0,
+  anisotropyRotationDeg: 0,
 };
 
 export const MATERIAL_MODES = ['standard', 'stylized'] as const;
 export type MaterialMode = (typeof MATERIAL_MODES)[number];
 
-// Realistic-leaning NPR layer on top of Default Lit. toonBlend 0 = pure PBR, 1 = hard ramp.
+// Material-level NPR layer: only inputs a UE 5.7 material instance can drive (no post-process, no shading model change).
 export const STYLIZED_DEFAULTS = {
   mode: 'stylized' as MaterialMode,
-  toonBlend: 0.7,
-  rampThreshold: 0, // raw N·L where the terminator sits
-  rampSoftness: 0.05,
-  shadowTint: '#9a8fd0', // multiplies sky diffuse, which fills unlit and shadowed areas
+  normalSoften: 0.35, // 0 = mesh normal, 1 = spherical normal from the object centre
+  gradientColor: '#6b5cff', // tints the bottom of the object
+  gradientStrength: 0.3,
+  shadeColor: '#8a7bff', // emissive lift on the side facing away from the sun
+  shadeStrength: 0.35,
+  terminatorColor: '#ff8a7a', // warm band where N·L crosses 0
+  terminatorIntensity: 0.4,
+  terminatorWidth: 0.2, // N·L half-width of the band
   rimColor: '#7fd8ff',
   rimIntensity: 0.6,
   rimWidth: 0.2,
+  rimSoftness: 0.1,
+  rimLightSide: 0, // -1 = back-lit side only, 0 = everywhere, 1 = sun-lit side only
 };
 
 export const LIGHT_DEFAULTS = {
@@ -52,11 +71,17 @@ export const RANGES: Record<string, Range> = {
   specular: { min: 0, max: 1, step: 0.01 },
   roughness: { min: 0, max: 1, step: 0.01 },
   emissiveIntensity: { min: 0, max: 20, step: 0.1 },
-  toonBlend: { min: 0, max: 1, step: 0.01 },
-  rampThreshold: { min: -1, max: 1, step: 0.01 },
-  rampSoftness: { min: 0, max: 0.5, step: 0.005 },
+  unit: { min: 0, max: 1, step: 0.01 },
+  subsurfaceOpacity: { min: 0, max: 1, step: 0.01 },
+  thinFilmThicknessNm: { min: 100, max: 1200, step: 10 },
+  thinFilmIor: { min: 1, max: 2.333, step: 0.01 },
+  anisotropyRotationDeg: { min: -180, max: 180, step: 1 },
+  stylizeStrength: { min: 0, max: 2, step: 0.01 },
+  terminatorWidth: { min: 0.01, max: 1, step: 0.01 },
   rimIntensity: { min: 0, max: 5, step: 0.01 },
   rimWidth: { min: 0, max: 1, step: 0.01 },
+  rimSoftness: { min: 0, max: 0.5, step: 0.005 },
+  rimLightSide: { min: -1, max: 1, step: 0.01 },
   sunIntensity: { min: 0, max: 20, step: 0.1 },
   sunAzimuthDeg: { min: -180, max: 180, step: 1 },
   sunElevationDeg: { min: -10, max: 90, step: 1 },
