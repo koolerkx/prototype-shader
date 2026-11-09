@@ -1,0 +1,10 @@
+{
+  "extraKnownMarketplaces": {
+    "prototype-shader": {
+      "source": { "source": "directory", "path": "/Users/kooler/Project/others/prototype-shader" }
+    }
+  },
+  "enabledPlugins": {
+    "ponytail@prototype-shader": true
+  }
+}

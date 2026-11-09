@@ -1,0 +1,20 @@
+{
+  "name": "prototype-space-3d",
+  "interface": {
+    "displayName": "Space Cargo Project Plugins"
+  },
+  "plugins": [
+    {
+      "name": "ponytail",
+      "source": {
+        "source": "local",
+        "path": "./.agents/plugins/ponytail"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

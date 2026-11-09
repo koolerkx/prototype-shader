@@ -1,0 +1,12 @@
+{
+  "name": "prototype-shader",
+  "owner": { "name": "Kooler FAN" },
+  "plugins": [
+    {
+      "name": "ponytail",
+      "source": "./.agents/plugins/ponytail",
+      "description": "Lazy senior dev mode. Forces the simplest solution that works: YAGNI, stdlib first, no unrequested abstractions.",
+      "category": "productivity"
+    }
+  ]
+}
