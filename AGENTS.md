@@ -9,15 +9,20 @@ This project aimed to test the shader effect before implement into UE5, this pro
 
 ## Scope
 - Build a Three.js material and shader sandbox: one page, local dev server, desktop browser.
-- Current surface: material modes `standard` / `toon` / `gradient`, shape switcher (sphere, cube, cylinder, cone, pyramid, torus), live debug panel, texture preview card, corner orientation gizmo, orbit and keyboard camera.
+- Current surface: material modes `standard` (UE5 Default Lit) / `stylized` (PBR mixed with toon), shape switcher (sphere, cube, cylinder, cone, pyramid, torus), live debug panel, texture preview card, corner orientation gizmo, orbit and keyboard camera.
 - Use procedural geometry and procedural shaders. `three` is the only runtime dependency.
 - Out of scope: external 3D or texture assets, audio, backend services, deployment, automated test suites, game mechanics.
+
+## Art Direction
+- Concept: 可愛い風 + Ace Combat 格好いい — cute and sci-fi at the same time.
+- Shading target: realistic-leaning NPR, between full PBR and a full toon shader. Build on PBR features (GGX specular, metallic/roughness, IBL, shadows) and mix toon shading into them; do not replace PBR with a pure toon shader.
 
 ## Iteration
 - Make the smallest change that shows the effect, then look at the result and adjust.
 - Keep the app runnable at the end of every turn; do not leave a half-migrated state.
 - Rewriting internal APIs is acceptable; there is no external consumer and no saved state.
 - Ask before adding a dependency; the runtime is `three` plus Vite and TypeScript.
+- Use yarn (v1) for every package command; do not use npm or commit a `package-lock.json`.
 
 ## Verification
 - Run `yarn typecheck`. It is the only required gate.
