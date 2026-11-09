@@ -114,7 +114,11 @@ const ui = createPanel(panelRoot);
 ui.section('Object');
 ui.select('Shape', sceneParams, 'shape', SHAPES, applyShape);
 
-ui.section('Material (Default Lit)');
+ui.section('Material');
+ui.select('Mode', styleParams, 'mode', MATERIAL_MODES, () => {
+  applyMaterial();
+  showModeControls();
+});
 ui.color('Base Color', matParams, 'baseColor', applyMaterial);
 ui.range('Metallic', matParams, 'metallic', RANGES.metallic, applyMaterial);
 ui.range('Specular', matParams, 'specular', RANGES.specular, applyMaterial);
@@ -122,15 +126,21 @@ ui.range('Roughness', matParams, 'roughness', RANGES.roughness, applyMaterial);
 ui.color('Emissive Color', matParams, 'emissiveColor', applyMaterial);
 ui.range('Emissive Int.', matParams, 'emissiveIntensity', RANGES.emissiveIntensity, applyMaterial);
 
-ui.section('Stylized (NPR layer)');
-ui.select('Mode', styleParams, 'mode', MATERIAL_MODES, applyMaterial);
-ui.range('Toon Blend', styleParams, 'toonBlend', RANGES.toonBlend, applyMaterial);
-ui.range('Ramp Threshold', styleParams, 'rampThreshold', RANGES.rampThreshold, applyMaterial);
-ui.range('Ramp Softness', styleParams, 'rampSoftness', RANGES.rampSoftness, applyMaterial);
-ui.color('Shadow Tint', styleParams, 'shadowTint', applyMaterial);
-ui.color('Rim Color', styleParams, 'rimColor', applyMaterial);
-ui.range('Rim Intensity', styleParams, 'rimIntensity', RANGES.rimIntensity, applyMaterial);
-ui.range('Rim Width', styleParams, 'rimWidth', RANGES.rimWidth, applyMaterial);
+// Controls that only apply in stylized mode; hidden otherwise.
+const stylizedControls = [
+  ui.section('Stylized (NPR layer)'),
+  ui.range('Toon Blend', styleParams, 'toonBlend', RANGES.toonBlend, applyMaterial),
+  ui.range('Ramp Threshold', styleParams, 'rampThreshold', RANGES.rampThreshold, applyMaterial),
+  ui.range('Ramp Softness', styleParams, 'rampSoftness', RANGES.rampSoftness, applyMaterial),
+  ui.color('Shadow Tint', styleParams, 'shadowTint', applyMaterial),
+  ui.color('Rim Color', styleParams, 'rimColor', applyMaterial),
+  ui.range('Rim Intensity', styleParams, 'rimIntensity', RANGES.rimIntensity, applyMaterial),
+  ui.range('Rim Width', styleParams, 'rimWidth', RANGES.rimWidth, applyMaterial),
+];
+function showModeControls() {
+  for (const el of stylizedControls) el.hidden = styleParams.mode !== 'stylized';
+}
+showModeControls();
 
 ui.section('Lighting');
 ui.color('Sun Color', lightParams, 'sunColor', applyLight);

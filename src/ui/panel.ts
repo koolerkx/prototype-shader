@@ -2,7 +2,7 @@ import type { Range } from '../config/tuning';
 
 type KeysOf<T, V> = { [K in keyof T]: T[K] extends V ? K : never }[keyof T];
 
-/** Sidebar controls. Each control writes into `obj[key]`, then calls `onChange`. */
+/** Sidebar controls. Each control writes into `obj[key]`, calls `onChange`, and returns its element. */
 export function createPanel(root: HTMLElement) {
   const row = (label: string) => {
     const el = document.createElement('div');
@@ -25,6 +25,7 @@ export function createPanel(root: HTMLElement) {
       const h = document.createElement('h3');
       h.textContent = title;
       root.append(h);
+      return h;
     },
 
     /** Slider + number box, kept in sync. The number box accepts values outside the slider range. */
@@ -42,7 +43,9 @@ export function createPanel(root: HTMLElement) {
       };
       slider.addEventListener('input', () => set(slider.valueAsNumber, slider));
       box.addEventListener('change', () => set(box.valueAsNumber, box));
-      row(label).append(slider, box);
+      const el = row(label);
+      el.append(slider, box);
+      return el;
     },
 
     /** Color picker + hex text box. */
@@ -62,7 +65,9 @@ export function createPanel(root: HTMLElement) {
       };
       picker.addEventListener('input', () => set(picker.value, picker));
       text.addEventListener('change', () => set(text.value.trim(), text));
-      row(label).append(picker, text);
+      const el = row(label);
+      el.append(picker, text);
+      return el;
     },
 
     select<T extends object>(label: string, obj: T, key: KeysOf<T, string>, options: readonly string[], onChange: () => void) {
@@ -73,7 +78,9 @@ export function createPanel(root: HTMLElement) {
         (obj[key] as string) = sel.value;
         onChange();
       });
-      row(label).append(sel);
+      const el = row(label);
+      el.append(sel);
+      return el;
     },
   };
 }
