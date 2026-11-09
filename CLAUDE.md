@@ -6,3 +6,5 @@
 - The `ponytail` plugin (`.agents/plugins/ponytail`) is served by the project marketplace in `.claude-plugin/marketplace.json` and enabled in `.claude/settings.json`. Its skills load from the plugin, so they have no link under `.claude/skills/`.
 
 Make suitable commit and suitable timing with suitable size of content
+
+Free to make commit
