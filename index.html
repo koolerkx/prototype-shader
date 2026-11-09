@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Shader Prototype</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1d21; color: #d6d9de;
+        font: 12px/1.4 ui-sans-serif, system-ui, sans-serif; }
+      #app { display: flex; height: 100%; }
+      #viewport { flex: 1; position: relative; min-width: 0; }
+      #viewport canvas { display: block; }
+      #panel { width: 320px; overflow-y: auto; background: #24272c; border-left: 1px solid #33363c; padding: 8px 12px; box-sizing: border-box; }
+      #panel h3 { margin: 14px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #8a9099; }
+      .row { display: grid; grid-template-columns: 96px 1fr 64px; gap: 6px; align-items: center; margin: 4px 0; }
+      .row label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .row input[type=range] { width: 100%; margin: 0; }
+      .row input[type=number], .row input[type=text], .row select {
+        width: 100%; box-sizing: border-box; background: #1b1d21; color: inherit; border: 1px solid #3a3e45; border-radius: 3px; padding: 2px 4px; font: inherit; }
+      .row select { grid-column: 2 / 4; }
+      .row input[type=color] { width: 100%; height: 22px; padding: 0; border: 1px solid #3a3e45; background: none; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="viewport"></div>
+      <aside id="panel"></aside>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
