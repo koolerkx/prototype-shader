@@ -3,8 +3,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { ViewHelper } from 'three/addons/helpers/ViewHelper.js';
 import {
-  DEG2RAD, LIGHT_DEFAULTS, MATERIAL_DEFAULTS, MATERIAL_MODES, RANGES, SCENE_DEFAULTS, SHAPES, STYLIZED_DEFAULTS,
-  TONE_MAPPINGS, VIEW, type ToneMappingName,
+  DEG2RAD, LIGHT_DEFAULTS, MATERIAL_DEFAULTS, MATERIAL_MODES, PRESET_NAMES, PRESETS, RANGES, SCENE_DEFAULTS, SHAPES,
+  STYLIZED_DEFAULTS, TONE_MAPPINGS, VIEW, type Preset, type PresetName, type ToneMappingName,
 } from './config/tuning';
 import { createPrimitive } from './geometry/primitives';
 import { applyDefaultLit, createDefaultLit } from './materials/defaultLit';
@@ -122,7 +122,20 @@ const ui = createPanel(panelRoot);
 ui.section('Object');
 ui.select('Shape', sceneParams, 'shape', SHAPES, applyShape);
 
-ui.section('Material');
+// Presets reset Material + NPR params to defaults, then apply overrides. '—' keeps the current values.
+const presetParams = { preset: '—' };
+ui.section('Presets');
+ui.select('Preset', presetParams, 'preset', ['—', ...PRESET_NAMES], () => {
+  const p: Preset | undefined = PRESETS[presetParams.preset as PresetName];
+  if (!p) return;
+  Object.assign(matParams, MATERIAL_DEFAULTS, p.material);
+  Object.assign(styleParams, STYLIZED_DEFAULTS, p.stylized);
+  applyMaterial();
+  showModeControls();
+  ui.refresh();
+});
+
+ui.section('Material (Default Lit)');
 ui.select('Mode', styleParams, 'mode', MATERIAL_MODES, () => {
   applyMaterial();
   showModeControls();
@@ -131,43 +144,57 @@ ui.color('Base Color', matParams, 'baseColor', applyMaterial);
 ui.range('Metallic', matParams, 'metallic', RANGES.metallic, applyMaterial);
 ui.range('Specular', matParams, 'specular', RANGES.specular, applyMaterial);
 ui.range('Roughness', matParams, 'roughness', RANGES.roughness, applyMaterial);
+
+ui.section('Emissive', false);
 ui.color('Emissive Color', matParams, 'emissiveColor', applyMaterial);
 ui.range('Emissive Int.', matParams, 'emissiveIntensity', RANGES.emissiveIntensity, applyMaterial);
 
 // UE built-in shading layers; apply in both modes.
-ui.section('Shading Layers (UE built-in)');
+ui.section('Layer · Clear Coat');
 ui.range('Clear Coat', matParams, 'clearCoat', RANGES.unit, applyMaterial);
 ui.range('Clear Coat Rough.', matParams, 'clearCoatRoughness', RANGES.unit, applyMaterial);
+
+ui.section('Layer · Fuzz');
 ui.range('Fuzz Amount', matParams, 'fuzzAmount', RANGES.unit, applyMaterial);
 ui.color('Fuzz Color', matParams, 'fuzzColor', applyMaterial);
 ui.range('Fuzz Roughness', matParams, 'fuzzRoughness', RANGES.unit, applyMaterial);
+
+ui.section('Layer · Subsurface');
 ui.color('Subsurface Color', matParams, 'subsurfaceColor', applyMaterial);
 ui.range('Subsurface Opacity', matParams, 'subsurfaceOpacity', RANGES.subsurfaceOpacity, applyMaterial);
+
+ui.section('Layer · Thin Film', false);
 ui.range('Thin Film', matParams, 'thinFilm', RANGES.unit, applyMaterial);
 ui.range('Thin Film nm', matParams, 'thinFilmThicknessNm', RANGES.thinFilmThicknessNm, applyMaterial);
 ui.range('Thin Film IOR', matParams, 'thinFilmIor', RANGES.thinFilmIor, applyMaterial);
+
+ui.section('Layer · Anisotropy', false);
 ui.range('Anisotropy', matParams, 'anisotropy', RANGES.unit, applyMaterial);
 ui.range('Aniso. Rotation°', matParams, 'anisotropyRotationDeg', RANGES.anisotropyRotationDeg, applyMaterial);
 
-// Controls that only apply in stylized mode; hidden otherwise.
-const stylizedControls = [
-  ui.section('Stylized (NPR layer)'),
-  ui.range('Normal Soften', styleParams, 'normalSoften', RANGES.unit, applyMaterial),
-  ui.color('Gradient Color', styleParams, 'gradientColor', applyMaterial),
-  ui.range('Gradient Strength', styleParams, 'gradientStrength', RANGES.unit, applyMaterial),
-  ui.color('Shade Color', styleParams, 'shadeColor', applyMaterial),
-  ui.range('Shade Strength', styleParams, 'shadeStrength', RANGES.stylizeStrength, applyMaterial),
-  ui.color('Terminator Color', styleParams, 'terminatorColor', applyMaterial),
-  ui.range('Terminator Int.', styleParams, 'terminatorIntensity', RANGES.stylizeStrength, applyMaterial),
-  ui.range('Terminator Width', styleParams, 'terminatorWidth', RANGES.terminatorWidth, applyMaterial),
-  ui.color('Rim Color', styleParams, 'rimColor', applyMaterial),
-  ui.range('Rim Intensity', styleParams, 'rimIntensity', RANGES.rimIntensity, applyMaterial),
-  ui.range('Rim Width', styleParams, 'rimWidth', RANGES.rimWidth, applyMaterial),
-  ui.range('Rim Softness', styleParams, 'rimSoftness', RANGES.rimSoftness, applyMaterial),
-  ui.range('Rim Light Side', styleParams, 'rimLightSide', RANGES.rimLightSide, applyMaterial),
-];
+// Categories that only apply in stylized mode; hidden otherwise.
+const stylizedSections: HTMLElement[] = [];
+stylizedSections.push(ui.section('NPR · Form'));
+ui.range('Normal Soften', styleParams, 'normalSoften', RANGES.unit, applyMaterial);
+ui.color('Gradient Color', styleParams, 'gradientColor', applyMaterial);
+ui.range('Gradient Strength', styleParams, 'gradientStrength', RANGES.unit, applyMaterial);
+
+stylizedSections.push(ui.section('NPR · Shade'));
+ui.color('Shade Color', styleParams, 'shadeColor', applyMaterial);
+ui.range('Shade Strength', styleParams, 'shadeStrength', RANGES.stylizeStrength, applyMaterial);
+ui.color('Terminator Color', styleParams, 'terminatorColor', applyMaterial);
+ui.range('Terminator Int.', styleParams, 'terminatorIntensity', RANGES.stylizeStrength, applyMaterial);
+ui.range('Terminator Width', styleParams, 'terminatorWidth', RANGES.terminatorWidth, applyMaterial);
+
+stylizedSections.push(ui.section('NPR · Rim'));
+ui.color('Rim Color', styleParams, 'rimColor', applyMaterial);
+ui.range('Rim Intensity', styleParams, 'rimIntensity', RANGES.rimIntensity, applyMaterial);
+ui.range('Rim Width', styleParams, 'rimWidth', RANGES.rimWidth, applyMaterial);
+ui.range('Rim Softness', styleParams, 'rimSoftness', RANGES.rimSoftness, applyMaterial);
+ui.range('Rim Light Side', styleParams, 'rimLightSide', RANGES.rimLightSide, applyMaterial);
+
 function showModeControls() {
-  for (const el of stylizedControls) el.hidden = styleParams.mode !== 'stylized';
+  for (const el of stylizedSections) el.hidden = styleParams.mode !== 'stylized';
 }
 showModeControls();
 
@@ -178,7 +205,7 @@ ui.range('Sun Azimuth°', lightParams, 'sunAzimuthDeg', RANGES.sunAzimuthDeg, ap
 ui.range('Sun Elevation°', lightParams, 'sunElevationDeg', RANGES.sunElevationDeg, applyLight);
 ui.range('Sky Intensity', lightParams, 'skyIntensity', RANGES.skyIntensity, applyLight);
 
-ui.section('Post');
+ui.section('Post', false);
 ui.select('Tone Mapping', lightParams, 'toneMapping', TONE_MAPPINGS, applyLight);
 ui.range('Exposure', lightParams, 'exposure', RANGES.exposure, applyLight);
 

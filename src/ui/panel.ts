@@ -1,17 +1,24 @@
 import type { Range } from '../config/tuning';
+import { TOOLTIPS } from './tooltips';
 
 type KeysOf<T, V> = { [K in keyof T]: T[K] extends V ? K : never }[keyof T];
 
-/** Sidebar controls. Each control writes into `obj[key]`, calls `onChange`, and returns its element. */
+/**
+ * Sidebar controls. Each control writes into `obj[key]`, calls `onChange`, and returns its element.
+ * Controls go into the most recent section. Hovering a row shows `TOOLTIPS[key]`.
+ */
 export function createPanel(root: HTMLElement) {
-  const row = (label: string) => {
+  let parent: HTMLElement = root;
+  const syncs: (() => void)[] = [];
+
+  const row = (label: string, key: PropertyKey) => {
     const el = document.createElement('div');
     el.className = 'row';
+    el.title = TOOLTIPS[String(key)] ?? label;
     const l = document.createElement('label');
     l.textContent = label;
-    l.title = label;
     el.append(l);
-    root.append(el);
+    parent.append(el);
     return el;
   };
   const input = (type: string) => {
@@ -21,11 +28,21 @@ export function createPanel(root: HTMLElement) {
   };
 
   return {
-    section(title: string) {
-      const h = document.createElement('h3');
-      h.textContent = title;
-      root.append(h);
-      return h;
+    /** Collapsible category; following controls go inside it. */
+    section(title: string, open = true) {
+      const d = document.createElement('details');
+      d.open = open;
+      const s = document.createElement('summary');
+      s.textContent = title;
+      d.append(s);
+      root.append(d);
+      parent = d;
+      return d;
+    },
+
+    /** Re-reads every control from its object, e.g. after a preset replaced the params. */
+    refresh() {
+      for (const sync of syncs) sync();
     },
 
     /** Slider + number box, kept in sync. The number box accepts values outside the slider range. */
@@ -33,7 +50,9 @@ export function createPanel(root: HTMLElement) {
       const slider = input('range');
       const box = input('number');
       for (const el of [slider, box]) Object.assign(el, { min: r.min, max: r.max, step: r.step });
-      slider.value = box.value = String(obj[key]);
+      const sync = () => (slider.value = box.value = String(obj[key]));
+      sync();
+      syncs.push(sync);
       const set = (v: number, from: HTMLInputElement) => {
         if (!Number.isFinite(v)) return;
         (obj[key] as number) = v;
@@ -43,7 +62,7 @@ export function createPanel(root: HTMLElement) {
       };
       slider.addEventListener('input', () => set(slider.valueAsNumber, slider));
       box.addEventListener('change', () => set(box.valueAsNumber, box));
-      const el = row(label);
+      const el = row(label, key);
       el.append(slider, box);
       return el;
     },
@@ -52,7 +71,9 @@ export function createPanel(root: HTMLElement) {
     color<T extends object>(label: string, obj: T, key: KeysOf<T, string>, onChange: () => void) {
       const picker = input('color');
       const text = input('text');
-      picker.value = text.value = String(obj[key]);
+      const sync = () => (picker.value = text.value = String(obj[key]));
+      sync();
+      syncs.push(sync);
       const set = (v: string, from: HTMLInputElement) => {
         if (!/^#[0-9a-f]{6}$/i.test(v)) {
           text.value = String(obj[key]);
@@ -65,7 +86,7 @@ export function createPanel(root: HTMLElement) {
       };
       picker.addEventListener('input', () => set(picker.value, picker));
       text.addEventListener('change', () => set(text.value.trim(), text));
-      const el = row(label);
+      const el = row(label, key);
       el.append(picker, text);
       return el;
     },
@@ -73,12 +94,14 @@ export function createPanel(root: HTMLElement) {
     select<T extends object>(label: string, obj: T, key: KeysOf<T, string>, options: readonly string[], onChange: () => void) {
       const sel = document.createElement('select');
       for (const o of options) sel.add(new Option(o, o));
-      sel.value = String(obj[key]);
+      const sync = () => (sel.value = String(obj[key]));
+      sync();
+      syncs.push(sync);
       sel.addEventListener('change', () => {
         (obj[key] as string) = sel.value;
         onChange();
       });
-      const el = row(label);
+      const el = row(label, key);
       el.append(sel);
       return el;
     },
