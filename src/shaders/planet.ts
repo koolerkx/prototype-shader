@@ -863,7 +863,7 @@ varying float vRadius;
 void main() {
 	float r = ( vRadius - uInner ) / max( uOuter - uInner, 1e-4 );
 	if ( r < 0.0 || r > 1.0 ) discard;
-	float density = 0.55 + 0.25 * sin( r * 40.0 + uSeed ) + 0.12 * sin( r * 97.0 + uSeed * 2.3 ) + 0.08 * sin( r * 211.0 );
+	float density = 0.72 + 0.2 * sin( r * 26.0 + uSeed ) + 0.08 * sin( r * 61.0 + uSeed * 2.3 ); // a few soft bands, no fine grooves
 	float gap = smoothstep( 0.0, 0.025, abs( r - 0.62 ) ); // one Cassini-like gap
 	float alpha = saturate( density ) * gap * smoothstep( 0.0, 0.04, r ) * smoothstep( 1.0, 0.92, r ) * uOpacity;
 	vec3 albedo = mix( uColorA, uColorB, smoothstep( 0.15, 0.95, r ) );
@@ -873,8 +873,8 @@ void main() {
 	float along = - dot( oc, uSunDir );
 	float dist = length( oc + along * uSunDir );
 	float shadow = along > 0.0 ? smoothstep( uPlanetRadius * 0.95, uPlanetRadius * 1.02, dist ) : 1.0;
-	float nl = 0.35 + 0.65 * abs( dot( normalize( vNormalWorld ), uSunDir ) ); // thin ring: lit from both sides
-	vec3 radiance = albedo * RECIPROCAL_PI * uSunRadiance * nl * mix( 0.05, 1.0, shadow ) + albedo * 0.03;
+	float nl = 0.6 + 0.4 * abs( dot( normalize( vNormalWorld ), uSunDir ) ); // thin ring: lit from both sides, low contrast
+	vec3 radiance = albedo * RECIPROCAL_PI * uSunRadiance * nl * mix( 0.3, 1.0, shadow ) + albedo * 0.08;
 	gl_FragColor = vec4( radiance, alpha * uFade );
 	#include <tonemapping_fragment>
 	#include <colorspace_fragment>

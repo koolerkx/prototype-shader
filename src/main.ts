@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { ViewHelper } from 'three/addons/helpers/ViewHelper.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { GALLERY_PRESETS } from './config/galleryPresets';
 import {
   APP_MODES, ATTACHMENTS, DEG2RAD, LIGHT_DEFAULTS, MATERIAL_DEFAULTS, MATERIAL_MODES, PLANET_DEFAULT_PRESET, PLANET_DEFAULTS,
@@ -57,6 +61,8 @@ pmrem.dispose();
 const { sky, environment: spaceEnv } = createSky(renderer);
 scene.add(sky);
 
+const fill = new THREE.HemisphereLight(PLANET_VIEW.fillSky, PLANET_VIEW.fillGround, 0);
+scene.add(fill);
 const sun = new THREE.DirectionalLight();
 sun.castShadow = true;
 sun.shadow.mapSize.setScalar(VIEW.shadowMapSize);
@@ -99,8 +105,7 @@ type ModeParams = { material: typeof matParams; stylized: typeof styleParams; li
 const ALL_PLANETS: Record<string, PlanetPreset> = { ...PLANET_PRESETS, ...GALLERY_PRESETS };
 const firstPlanet: PlanetPreset = PLANET_PRESETS[PLANET_DEFAULT_PRESET];
 const planetParams = { ...PLANET_DEFAULTS, ...firstPlanet.planet };
-const modeLight = (mode: AppMode) =>
-  mode === 'planet' ? { ...LIGHT_DEFAULTS, skyIntensity: PLANET_VIEW.skyIntensity } : { ...LIGHT_DEFAULTS };
+const modeLight = (mode: AppMode) => (mode === 'planet' ? { ...LIGHT_DEFAULTS, ...PLANET_VIEW.light } : { ...LIGHT_DEFAULTS });
 const modeParams: Record<AppMode, ModeParams> = {
   material: { material: { ...matParams }, stylized: { ...styleParams }, light: { ...lightParams } },
   planet: {
@@ -110,6 +115,7 @@ const modeParams: Record<AppMode, ModeParams> = {
   },
 };
 let activeMode = sceneParams.appMode;
+Object.assign(lightParams, modeParams[activeMode].light); // the page starts in planet mode: use its light rig
 let planetTime = 0; // seconds, scaled by timeScale
 let presetLight = false; // the applied preset carried its own light; the next one without a light restores the mode default
 let ueButton: HTMLButtonElement | undefined; // panel row that shows the UE5 rating of the current settings
@@ -242,6 +248,7 @@ function applyLight() {
   sun.color.set(lightParams.sunColor);
   sun.intensity = lightParams.sunIntensity;
   scene.environmentIntensity = lightParams.skyIntensity;
+  fill.intensity = lightParams.fillIntensity;
   renderer.toneMapping = toneMappings[lightParams.toneMapping];
   renderer.toneMappingExposure = lightParams.exposure;
 }
@@ -764,10 +771,12 @@ ui.range('Exposure', lightParams, 'exposure', RANGES.exposure, applyLight);
 
 // View setting, not part of presets: pixels rendered per CSS pixel.
 const viewParams = { renderScale: renderer.getPixelRatio() };
+ui.range('Fill Intensity', lightParams, 'fillIntensity', RANGES.fillIntensity, applyLight);
 ui.section('Performance');
 ui.range('Render Scale', viewParams, 'renderScale', RANGES.renderScale, () => {
   renderer.setPixelRatio(viewParams.renderScale);
-  renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+  resize();
+ui.range('Bloom', lightParams, 'bloomStrength', RANGES.bloomStrength, applyLight);
 });
 
 function showModeControls() {
@@ -802,9 +811,32 @@ let snapshot: {
 
 function renderThumbnail(state: SavedState): HTMLCanvasElement {
   applyState(state, { instant: true, thumbnail: true });
+const cameraAzimuth = Math.atan2(VIEW.cameraPosition[2], VIEW.cameraPosition[0]); // thumbnails look from the same side as the default view
+
+// --- Bloom (UE: default post-process Bloom). One composer per camera; used only while Bloom > 0. ---
+function createBloom(cam: THREE.Camera) {
+  const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+  const composer = new EffectComposer(renderer, target);
+  const pass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0, VIEW.bloomRadius, VIEW.bloomThreshold);
+  composer.addPass(new RenderPass(scene, cam));
+  composer.addPass(pass);
+  composer.addPass(new OutputPass()); // tone mapping and sRGB, as the direct path does in the material
+  return {
+    setSize(w: number, h: number) {
+      composer.setPixelRatio(renderer.getPixelRatio());
+      composer.setSize(w, h);
+    },
+    render() {
+      pass.strength = lightParams.bloomStrength;
+      composer.render();
+    },
+  };
+}
+const viewBloom = createBloom(camera);
+const thumbBloom = createBloom(thumbCamera);
   const yaw = mesh.rotation.y;
-  if (isPlanet()) mesh.rotation.y = planetParams.swayDeg > 0 ? 0 : 0.6; // a face looks at the thumbnail camera; the rest show a fixed side
-  if (isPlanet()) thumbCamera.position.set(0, PLANET_VIEW.centerY + 1.6, 3.4);
+  if (isPlanet()) mesh.rotation.y = planetParams.swayDeg > 0 ? PLANET_VIEW.faceYawDeg * DEG2RAD : 0.6; // a face looks at the camera; the rest show a fixed side
+  if (isPlanet()) thumbCamera.position.set(Math.cos(cameraAzimuth) * 3.4, PLANET_VIEW.centerY + 1.6, Math.sin(cameraAzimuth) * 3.4);
   else thumbCamera.position.set(2.0, 1.5, 2.4);
   thumbCamera.lookAt(0, isPlanet() ? PLANET_VIEW.centerY : 0.55, 0);
   const resolution = outline.material.uniforms.uResolution.value;
@@ -817,8 +849,13 @@ function renderThumbnail(state: SavedState): HTMLCanvasElement {
   renderer.setScissorTest(true);
   renderer.setViewport(0, 0, THUMB_PX, THUMB_PX);
   renderer.setScissor(0, 0, THUMB_PX, THUMB_PX);
-  renderer.clear();
-  renderer.render(scene, thumbCamera);
+  if (lightParams.bloomStrength > 0) {
+    thumbBloom.setSize(THUMB_PX, THUMB_PX);
+    thumbBloom.render(); // its last pass draws into the viewport set above
+  } else {
+    renderer.clear();
+    renderer.render(scene, thumbCamera);
+  }
   // Copy in the same task as the render, before the browser presents the frame.
   const px = Math.round(THUMB_PX * renderer.getPixelRatio());
   const canvas = document.createElement('canvas');
@@ -898,10 +935,14 @@ const resize = () => {
 new ResizeObserver(resize).observe(viewport);
 
 // The page opens on the full gallery. The thumbnails use the main canvas, so it needs its size first.
+  viewBloom.setSize(w, h);
 gallery.setFull(true);
 resize();
 showGallery();
-gallery.select(stateFor('planet', PLANET_DEFAULT_PRESET));
+// Start on the default preset in full (surface, material and NPR), not on bare defaults.
+const startState = stateFor('planet', PLANET_DEFAULT_PRESET)!;
+applyState(startState);
+gallery.select(startState);
 
 let last = 0;
 renderer.setAnimationLoop((t) => {
@@ -941,7 +982,10 @@ renderer.setAnimationLoop((t) => {
 
 function drawFrame() {
   updateFrame(camera);
-  renderer.clear();
-  renderer.render(scene, camera);
+  if (lightParams.bloomStrength > 0) viewBloom.render();
+  else {
+    renderer.clear();
+    renderer.render(scene, camera);
+  }
   viewHelper.render(renderer);
 }

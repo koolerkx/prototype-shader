@@ -168,7 +168,12 @@ export const PLANET_VIEW = {
   ringMax: 3.2,
   orbitTube: 0.004, // orbit line thickness, world units
   spaceBackground: '#0b0d1a',
-  skyIntensity: 1, // planet mode is lit by the baked space sky, which is dark: the night side stays dark
+  // Planet-mode light rig, a cute product-shot setup (UE: Directional Light + Sky Light + default Bloom):
+  // key from the upper left front of the default camera, so about two thirds of the planet is lit;
+  // a violet hemisphere fill keeps the shadow side readable; Bloom gives emissive parts and highlights a glow.
+  light: { sunAzimuthDeg: 88, sunElevationDeg: 36, skyIntensity: 1, fillIntensity: 0.4, exposure: 1.1, bloomStrength: 0.3 },
+  fillSky: '#a79cff',
+  fillGround: '#6a4fb0',
 };
 
 // Neutral base; every planet preset starts from these values.
@@ -583,6 +588,8 @@ export const SCENE_DEFAULTS = {
   appMode: 'planet' as AppMode, // the page opens on the planet gallery
   shape: 'sphere' as ShapeName,
   planetShape: 'sphere' as PlanetShapeName,
+  fillIntensity: 0, // hemisphere fill (UE: Sky Light colour with a lower-hemisphere colour)
+  bloomStrength: 0, // UE: post-process Bloom intensity; 0 skips the pass
 };
 
 export const RANGES: Record<string, Range> = {
@@ -612,6 +619,8 @@ export const RANGES: Record<string, Range> = {
   timeScale: { min: 0, max: 10, step: 0.1 },
   seed: { min: 0, max: 100, step: 0.1 },
   noiseScale: { min: 0.5, max: 8, step: 0.05 },
+  fillIntensity: { min: 0, max: 3, step: 0.01 },
+  bloomStrength: { min: 0, max: 3, step: 0.01 },
   warp: { min: 0, max: 3, step: 0.01 },
   detail: { min: 1, max: 6, step: 1 },
   bump: { min: 0, max: 5, step: 0.01 },
@@ -679,3 +688,5 @@ export const VIEW = {
   shadowMapSize: 2048,
   maxRenderScale: 1.5, // default pixel-ratio cap; 2 on a Retina screen costs about 1.8x the GPU time
 };
+  bloomThreshold: 1.1, // linear luminance; only emissive parts and highlights pass
+  bloomRadius: 0.4,

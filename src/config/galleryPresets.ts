@@ -17,8 +17,6 @@ const look = (toonness: number, shadeColor: string, rimColor: string, over: Styl
 // --- The 15 surfaces of v2.0. `steps` is the tone count of the v1.0 toon version (first 12 only). ---
 type Surface = { toon: number; shade: string; rim: string; steps?: number; planet: Planet; material?: Material; stylized?: Stylized; light?: PlanetPreset['light'] };
 
-const FRONT_LIGHT = { sunAzimuthDeg: 75, sunElevationDeg: 40 }; // lights a face that looks at the camera
-
 const SURFACES: Record<string, Surface> = {
   Terraced: {
     toon: 0.5, shade: '#8a80c8', rim: '#bfe6ff', steps: 2,
@@ -57,7 +55,7 @@ const SURFACES: Record<string, Surface> = {
     toon: 0.5, shade: '#4a3050', rim: '#ff7a40', steps: 2,
     planet: {
       seaLevel: 0, noiseScale: 2, detail: 2, lowColor: '#3a2a30', midColor: '#2a2438', highColor: '#3a2a30',
-      landRoughness: 0.85, cellScale: 3, cellCrackWidth: 0.08, cellGlow: 4, cellGlowColor: '#ff4a14',
+      landRoughness: 0.85, cellScale: 3, cellCrackWidth: 0.08, cellGlow: 2.2, cellGlowColor: '#ff4a14',
       atmoColor: '#ff7a40', atmoIntensity: 0.6,
     },
   },
@@ -65,8 +63,8 @@ const SURFACES: Record<string, Surface> = {
     toon: 0, shade: '#ffffff', rim: '#40f0ff', steps: 2,
     planet: {
       spinDegPerSec: 9, seaLevel: 0, terrace: 1, noiseScale: 1.5, detail: 2, warp: 1.2, flowSpeed: 0.15, bump: 0,
-      lowColor: '#ff4fb0', midColor: '#ffb040', highColor: '#fff6d0', surfaceEmissive: 2.2,
-      atmoColor: '#40f0ff', atmoIntensity: 1.6, atmoThickness: 0.3, atmoSunset: 0,
+      lowColor: '#ff4fb0', midColor: '#ffb040', highColor: '#fff6d0', surfaceEmissive: 1.1,
+      atmoColor: '#40f0ff', atmoIntensity: 0.9, atmoThickness: 0.3, atmoSunset: 0,
     },
     stylized: { rimIntensity: 1.5, rimWidth: 0.3, rimLightSide: 0, outlineWidth: 0 }, // unlit: no outline in the toon version either
   },
@@ -146,7 +144,7 @@ const SURFACES: Record<string, Surface> = {
       seaLevel: 0, noiseScale: 2.2, detail: 2, warp: 0.3, flowSpeed: 0.05, bump: 2, lowColor: '#d8c8f8', midColor: '#ffffff',
       highColor: '#ffffff', landRoughness: 1, atmoColor: '#ffffff', atmoIntensity: 0.5,
     },
-    material: { fuzzAmount: 1, fuzzColor: '#ffffff', fuzzRoughness: 0.6, subsurfaceColor: '#b8a8e8', subsurfaceOpacity: 0.5 },
+    material: { fuzzAmount: 0.6, fuzzColor: '#f4eeff', fuzzRoughness: 0.6, subsurfaceColor: '#6a5aa8', subsurfaceOpacity: 0.5 },
   },
 };
 
@@ -219,7 +217,6 @@ const IDEAS: Record<string, PlanetPreset> = {
     stylized: look(0.4, '#7030c0', '#ff80ff', { rimIntensity: 1, rimLightSide: 0 }),
   },
   'Cat Ear': {
-    light: FRONT_LIGHT,
     planet: {
       tiltDeg: 5, swayDeg: 20, seaLevel: 0, bump: 0, lowColor: '#ffb4ad', midColor: '#ffb4ad', highColor: '#ffb4ad',
       landRoughness: 0.28, attach: 'catEars', accentColor: '#ff80ad', face: 3, blush: 1, blushColor: '#ff7399',
@@ -250,7 +247,6 @@ const IDEAS: Record<string, PlanetPreset> = {
 
 // --- Cat-Ear v1.0: nine variants of one material; only params change. ---
 const cat = (body: string, inner: string, planet: Planet, material: Material = {}, stylized: Stylized = {}): PlanetPreset => ({
-  light: FRONT_LIGHT,
   planet: {
     tiltDeg: 5, swayDeg: 20, seaLevel: 0, bump: 0, detail: 2, lowColor: body, midColor: body, highColor: body, deepColor: body,
     shallowColor: body, oceanRoughness: 0.28, landRoughness: 0.28, attach: 'catEars', accentColor: inner, face: 1, blush: 1,
