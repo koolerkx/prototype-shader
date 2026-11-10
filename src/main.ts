@@ -390,6 +390,7 @@ const onPreset = () => {
   const s = stateFor(sceneParams.appMode, presetValue());
   if (s) applyState(s);
   gallery.select(s);
+  if (planetParams.scanOnSelect > 0) playScan();
 };
 const materialPresetRow = ui.select('Preset', presetParams, 'preset', presetOptions('material'), onPreset);
 const planetPresetRow = ui.select('Planet Preset', planetPresetParams, 'planetPreset', presetOptions('planet'), onPreset);
@@ -533,6 +534,7 @@ ui.range('Scan Progress', planetParams, 'scanProgress', RANGES.unit, applyPlanet
 ui.color('Scan Color', planetParams, 'scanColor', applyPlanetParams);
 ui.range('Scan Width', planetParams, 'scanWidth', RANGES.scanWidth, applyPlanetParams);
 ui.range('Scan Seconds', planetParams, 'scanSeconds', RANGES.scanSeconds, applyPlanetParams);
+ui.range('Scan On Select', planetParams, 'scanOnSelect', RANGES.toggle, applyPlanetParams);
 
 // --- Tabs: Surface, FX, Space (planet only) ---
 const planetTabs = [ui.tab('Surface')];
@@ -851,7 +853,7 @@ const gallery = createGallery<SavedState>(document.getElementById('app')!, rende
   pick(state) {
     applyState(state);
     selectPreset(userPresets.includes(state) ? USER + state.name : state.name);
-    playScan(); // enter with the hologram build-up
+    if (planetParams.scanOnSelect > 0) playScan(); // only presets that use the scan as their effect
   },
 });
 

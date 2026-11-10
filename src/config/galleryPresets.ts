@@ -202,7 +202,7 @@ const IDEAS: Record<string, PlanetPreset> = {
   Hologram: {
     planet: {
       spinDegPerSec: 20, seaLevel: 0, bump: 0, lowColor: '#04121c', midColor: '#04121c', highColor: '#04121c', landRoughness: 0.4,
-      bubble: 1, neonGrid: 3, neonColor: '#40e6ff', scanColor: '#40e6ff', atmoColor: '#40e6ff', atmoIntensity: 0.6, atmoSunset: 0,
+      bubble: 1, neonGrid: 3, neonColor: '#40e6ff', scanColor: '#40e6ff', scanOnSelect: 1, atmoColor: '#40e6ff', atmoIntensity: 0.6, atmoSunset: 0,
       orbitCount: 1, orbitRadius: 1.32, orbitInclinationDeg: 0, orbitColor: '#40e6ff', orbitIntensity: 1.2, orbitPulses: 4,
     },
     stylized: look(0, '#ffffff', '#40e6ff', { rimIntensity: 1.8, rimWidth: 0.35, rimSoftness: 0.3, rimLightSide: 0 }),

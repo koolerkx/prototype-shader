@@ -181,6 +181,7 @@ export const PLANET_DEFAULTS = {
   scanColor: '#5fe8ff',
   scanWidth: 0.08, // glowing band below the front, in object heights
   scanSeconds: 2.5,
+  scanOnSelect: 0, // 1 = the scan plays when this preset is selected (holograms); other planets appear at once
   // Terrain
   seed: 0,
   noiseScale: 1.6,
@@ -520,7 +521,7 @@ export const PLANET_PRESETS = {
     planet: {
       seaLevel: 0, noiseScale: 1.2, detail: 3, lowColor: '#08142a', midColor: '#0c2140', highColor: '#123060',
       landRoughness: 0.35, neonColor: '#3fd8ff', neonColorB: '#9ff0ff', neonIntensity: 1.5, neonContours: 10,
-      panels: 0.35, panelScale: 8, panelSeam: 0.004, neonSeams: 1, scanColor: '#5fe8ff', scanWidth: 0.12,
+      panels: 0.35, panelScale: 8, panelSeam: 0.004, neonSeams: 1, scanColor: '#5fe8ff', scanWidth: 0.12, scanOnSelect: 1,
       atmoColor: '#3fd8ff', atmoIntensity: 0.8, orbitCount: 3, orbitColor: '#3fd8ff', orbitColorB: '#9ff0ff',
     },
     stylized: { ...PLANET_STYLE, shadeColor: '#1a3aff', shadeStrength: 0.3, terminatorIntensity: 0, rimColor: '#3fd8ff', rimIntensity: 0.8 },
