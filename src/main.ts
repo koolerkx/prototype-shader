@@ -15,7 +15,7 @@ import { createPrimitive } from './geometry/primitives';
 import { createAttachments } from './materials/attachments';
 import { applyDefaultLit, createDefaultLit } from './materials/defaultLit';
 import { applyOutline, createOutline } from './materials/outline';
-import { bakeSkyEnvironment, createSky } from './materials/sky';
+import { createSky } from './materials/sky';
 import {
   addPlanetLayer, applyAtmosphere, applyOrbits, applyPlanet, applyRing, applyShield, createAtmosphere, createOrbits,
   createRing, createShield, setAtmosphereShape, updatePlanetFrame, updatePlanetView,
@@ -54,8 +54,7 @@ const pmrem = new THREE.PMREMGenerator(renderer);
 const roomEnv = pmrem.fromScene(new RoomEnvironment(), 0.04).texture; // material mode
 pmrem.dispose();
 // Planet mode: a space sky box behind the planet, also baked into the environment so glossy surfaces reflect it.
-const sky = createSky();
-const spaceEnv = bakeSkyEnvironment(renderer, sky);
+const { sky, environment: spaceEnv } = createSky(renderer);
 scene.add(sky);
 
 const sun = new THREE.DirectionalLight();

@@ -141,6 +141,7 @@ export const ATTACH = {
 // Space sky box behind every planet (planet mode only).
 export const SKY = {
   radius: 90, // world units; inside the camera far plane
+  cubeSize: 512, // baked nebula cube map, pixels per face
   brightness: 1,
 };
 

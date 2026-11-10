@@ -395,7 +395,7 @@ if ( uPlanet > 0.5 ) {
 		float crack = pow( 1.0 - abs( planetNoise( p * 2.5 + warp * 1.5 + vec3( t * 0.02 ) ) ), 12.0 ) * uGlowCracks;
 		float glow = saturate( low + crack ) * ( 1.0 - ice );
 		float pulse = 0.75 + 0.25 * sin( t * 2.0 + planetNoise( p * 2.0 ) * 6.0 );
-		planetGlow = uGlowColor * ( uGlowIntensity * glow * mix( 1.0, pulse, uGlowPulse ) );
+		planetGlow += uGlowColor * ( uGlowIntensity * glow * mix( 1.0, pulse, uGlowPulse ) );
 		col = mix( col, uGlowColor * 0.25, glow );
 	}
 
