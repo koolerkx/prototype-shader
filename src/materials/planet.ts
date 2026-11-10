@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { DEG2RAD, PLANET_VIEW, type PLANET_DEFAULTS } from '../config/tuning';
+import { POLYHEDRA } from '../geometry/planetShapes';
 import {
-  ATMOSPHERE_FRAGMENT, ATMOSPHERE_VERTEX, ORBIT_FRAGMENT, ORBIT_VERTEX, PLANET_ALBEDO, PLANET_EMISSIVE,
-  PLANET_METALNESS, PLANET_NORMAL, PLANET_ROUGHNESS, PLANET_UNIFORMS, PLANET_VERTEX, PLANET_VERTEX_PARS,
-  RING_FRAGMENT, RING_VERTEX,
+  ATMOSPHERE_FRAGMENT, ATMOSPHERE_VERTEX, ORBIT_FRAGMENT, ORBIT_VERTEX, PLANET_ALBEDO, PLANET_ALPHA, PLANET_EMISSIVE,
+  PLANET_FILM, PLANET_METALNESS, PLANET_NORMAL, PLANET_ROUGHNESS, PLANET_UNIFORMS, PLANET_VERTEX, PLANET_VERTEX_PARS,
+  RING_FRAGMENT, RING_VERTEX, SHIELD_FRAGMENT, SHIELD_VERTEX,
 } from '../shaders/planet';
-import { after } from './stylized';
+import { after, replaceOnce } from './stylized';
 
 export type PlanetParams = typeof PLANET_DEFAULTS;
 export type PlanetUniforms = ReturnType<typeof createUniforms>;
@@ -15,6 +16,11 @@ const createUniforms = () => ({
   uPlanet: { value: 0 },
   uPlanetTime: { value: 0 },
   uPlanetObjToView: { value: new THREE.Matrix3() }, // per frame; turns the object-space height gradient into view space
+  uPlanetInvRadius: { value: 1 / PLANET_VIEW.radius },
+  uScanProgress: { value: 1 },
+  uScanRange: { value: new THREE.Vector2(-1, 1) }, // object-space y range of the current shape
+  uScanColor: { value: new THREE.Color() },
+  uScanWidth: { value: 0.1 },
   uSeed: { value: 0 },
   uNoiseScale: { value: 1 },
   uWarp: { value: 0 },
@@ -41,6 +47,11 @@ const createUniforms = () => ({
   uPanelScale: { value: 1 },
   uPanelSeam: { value: 0.01 },
   uPanelMetallic: { value: 0 },
+  uCraters: { value: 0 },
+  uCraterScale: { value: 1 },
+  uCraterDensity: { value: 0 },
+  uBubble: { value: 0 },
+  uCloudShadow: { value: 0 },
   uCloudCover: { value: 0 },
   uCloudSoftness: { value: 0.1 },
   uCloudScale: { value: 1 },
@@ -70,9 +81,8 @@ export function addPlanetLayer(m: THREE.MeshPhysicalMaterial): PlanetUniforms {
     base.call(m, shader, renderer);
     Object.assign(shader.uniforms, uniforms);
 
-    let vs = after(shader.vertexShader, '#include <common>', PLANET_VERTEX_PARS);
-    vs = after(vs, '#include <begin_vertex>', PLANET_VERTEX);
-    shader.vertexShader = vs;
+    const vs = after(shader.vertexShader, '#include <common>', PLANET_VERTEX_PARS);
+    shader.vertexShader = replaceOnce(vs, '#include <project_vertex>', `${PLANET_VERTEX}\n#include <project_vertex>`);
 
     // `after` inserts right behind the anchor, so these run before the stylized code at the same anchors.
     let fs = after(shader.fragmentShader, '#include <common>', PLANET_UNIFORMS);
@@ -81,6 +91,8 @@ export function addPlanetLayer(m: THREE.MeshPhysicalMaterial): PlanetUniforms {
     fs = after(fs, '#include <metalnessmap_fragment>', PLANET_METALNESS);
     fs = after(fs, '#include <normal_fragment_maps>', PLANET_NORMAL);
     fs = after(fs, '#include <emissivemap_fragment>', PLANET_EMISSIVE);
+    fs = after(fs, '#include <lights_physical_fragment>', PLANET_FILM);
+    fs = after(fs, '#include <opaque_fragment>', PLANET_ALPHA);
     shader.fragmentShader = fs;
   };
   return uniforms;
@@ -98,36 +110,92 @@ export function applyPlanet(u: PlanetUniforms, p: PlanetParams): void {
   u.uCloudSpeed.value = p.cloudSpeedDegPerSec * DEG2RAD;
 }
 
-// --- Atmosphere shell ---
+// --- Atmosphere: raymarched through the planet SDF ---
 export type Atmosphere = THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
 
 export function createAtmosphere(): Atmosphere {
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uColor: { value: new THREE.Color() },
+      uSunsetColor: { value: new THREE.Color() },
+      uSunset: { value: 1 },
       uIntensity: { value: 1 },
-      uLimb: { value: 0.5 },
-      uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+      uThickness: { value: 0.1 },
+      uBound: { value: 1 },
+      uCamObj: { value: new THREE.Vector3() },
+      uSunObj: { value: new THREE.Vector3(0, 1, 0) },
+      uFade: { value: 1 },
+      uDodecaN: { value: POLYHEDRA.dodecahedron.normals },
+      uIcosaN: { value: POLYHEDRA.icosahedron.normals },
+      uPolyInradius: { value: POLYHEDRA.icosahedron.inradius }, // the same for both at equal circumradius
+      uRoundness: { value: 0.5 },
+      uShapeA: { value: 0 },
+      uShapeB: { value: 0 },
+      uMorph: { value: 0 },
     },
     vertexShader: ATMOSPHERE_VERTEX,
     fragmentShader: ATMOSPHERE_FRAGMENT,
-    side: THREE.BackSide,
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
-  // Always a sphere, also around polyhedra: flat shell faces would show as solid planes.
-  return new THREE.Mesh(new THREE.SphereGeometry(PLANET_VIEW.radius, 96, 64), material);
+  // Unit sphere scaled in the shader to the bound; the march does the shape.
+  return new THREE.Mesh(new THREE.SphereGeometry(1, 64, 32), material);
 }
 
-/** `scaleY` matches the planet's polar scale (ellipsoid). */
-export function applyAtmosphere(a: Atmosphere, p: PlanetParams, scaleY: number): void {
-  const s = 1 + p.atmoThickness;
-  a.scale.set(s, s * scaleY, s);
+export function applyAtmosphere(a: Atmosphere, p: PlanetParams): void {
   const u = a.material.uniforms;
   u.uColor.value.set(p.atmoColor);
+  u.uSunsetColor.value.set(p.atmoSunsetColor);
+  u.uSunset.value = p.atmoSunset;
   u.uIntensity.value = p.atmoIntensity;
-  u.uLimb.value = Math.sqrt(1 - 1 / (s * s)); // shortcut: orthographic sphere estimate; slightly off for ellipsoid / polyhedra
+  u.uThickness.value = p.atmoThickness * PLANET_VIEW.radius;
+  u.uRoundness.value = p.starRoundness;
+  a.visible = p.atmoIntensity > 0;
+}
+
+/** Morph state shared by the atmosphere SDF: shape ids, blend 0..1, and the bound that encloses both shapes. */
+export function setAtmosphereShape(a: Atmosphere, shapeA: number, shapeB: number, morph: number, extent: number): void {
+  const u = a.material.uniforms;
+  u.uShapeA.value = shapeA;
+  u.uShapeB.value = shapeB;
+  u.uMorph.value = morph;
+  u.uBound.value = extent + u.uThickness.value * 3;
+}
+
+// --- Hexagon shield ---
+export type Shield = THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+
+export function createShield(): Shield {
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color() },
+      uIntensity: { value: 0 },
+      uRadius: { value: 1 },
+      uHexCount: { value: 24 },
+      uTime: { value: 0 },
+      uHitRate: { value: 0 },
+      uFade: { value: 1 },
+    },
+    vertexShader: SHIELD_VERTEX,
+    fragmentShader: SHIELD_FRAGMENT,
+    side: THREE.DoubleSide,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  return new THREE.Mesh(new THREE.SphereGeometry(1, 128, 64), material);
+}
+
+/** `extent` is the planet's largest radius, so the shield clears the torus and the star too. */
+export function applyShield(shield: Shield, p: PlanetParams, extent: number): void {
+  const u = shield.material.uniforms;
+  u.uColor.value.set(p.shieldColor);
+  u.uIntensity.value = p.shieldIntensity;
+  u.uRadius.value = p.shieldRadius * extent;
+  u.uHexCount.value = Math.round(p.shieldHexCount); // integer, so the hex grid wraps without a seam
+  u.uHitRate.value = p.shieldHitRate;
+  shield.visible = p.shieldIntensity > 0;
 }
 
 // --- Ring ---
@@ -148,6 +216,7 @@ export function createRing(): Ring {
       uSunRadiance: { value: new THREE.Color() },
       uPlanetCenter: { value: new THREE.Vector3() },
       uPlanetRadius: { value: r },
+      uFade: { value: 1 },
     },
     vertexShader: RING_VERTEX,
     fragmentShader: RING_FRAGMENT,
@@ -200,6 +269,7 @@ export function createOrbits(): Orbits {
         uPulseLength: { value: 0.3 },
         uPhase: { value: layout.phase },
         uBase: { value: 0.15 },
+        uFade: { value: 1 },
       },
       vertexShader: ORBIT_VERTEX,
       fragmentShader: ORBIT_FRAGMENT,
@@ -231,17 +301,26 @@ export function applyOrbits(orbits: Orbits, p: PlanetParams): void {
   });
 }
 
-export function updateOrbits(orbits: Orbits, time: number): void {
-  for (const mesh of orbitMeshes(orbits)) mesh.material.uniforms.uTime.value = time;
-}
-
-/** Per-frame world-space inputs for the shell and the ring. */
+/** Per-frame inputs: sun and camera for the shells, time for the shield, and the scan fade-in of everything around the planet. */
 export function updatePlanetFrame(
-  a: Atmosphere, ring: Ring, sunDirWorld: THREE.Vector3, sun: THREE.DirectionalLight, centerWorld: THREE.Vector3,
+  a: Atmosphere, ring: Ring, orbits: Orbits, shield: Shield, planet: THREE.Object3D, camera: THREE.Camera,
+  sunDirWorld: THREE.Vector3, sun: THREE.DirectionalLight, centerWorld: THREE.Vector3, time: number, fade: number,
 ): void {
-  a.material.uniforms.uSunDir.value.copy(sunDirWorld);
+  inverse.copy(planet.matrixWorld).invert();
+  const au = a.material.uniforms;
+  au.uCamObj.value.setFromMatrixPosition(camera.matrixWorld).applyMatrix4(inverse);
+  au.uSunObj.value.copy(sunDirWorld).transformDirection(inverse);
+  au.uFade.value = fade;
   const u = ring.material.uniforms;
   u.uSunDir.value.copy(sunDirWorld);
   u.uSunRadiance.value.copy(sun.color).multiplyScalar(sun.intensity);
   u.uPlanetCenter.value.copy(centerWorld);
+  u.uFade.value = fade;
+  shield.material.uniforms.uTime.value = time;
+  shield.material.uniforms.uFade.value = fade;
+  for (const mesh of orbitMeshes(orbits)) {
+    mesh.material.uniforms.uTime.value = time;
+    mesh.material.uniforms.uFade.value = fade;
+  }
 }
+const inverse = new THREE.Matrix4();

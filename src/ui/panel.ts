@@ -155,15 +155,27 @@ export function createPanel(root: HTMLElement) {
       return el;
     },
 
-    /** Button spanning the control columns; `key` picks the tooltip. */
-    button(label: string, text: string, key: string, onClick: (b: HTMLButtonElement) => void) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = text;
-      b.addEventListener('click', () => onClick(b));
+    /** Several buttons in one row; `key` picks the tooltip. */
+    buttons(label: string, key: string, defs: { text: string; onClick: (b: HTMLButtonElement) => void }[]) {
+      const wrap = div('btns');
+      for (const d of defs) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = d.text;
+        b.addEventListener('click', () => d.onClick(b));
+        wrap.append(b);
+      }
       const el = row(label, key);
-      el.append(b);
+      el.append(wrap);
       return el;
+    },
+
+    /** Replaces the options of a row made by `select`; keeps the value when it still exists. */
+    setOptions(el: HTMLElement, options: readonly string[]) {
+      const sel = el.querySelector('select')!;
+      const value = sel.value;
+      sel.replaceChildren(...options.map((o) => new Option(o, o)));
+      sel.value = options.includes(value) ? value : options[0];
     },
 
     select<T extends object>(label: string, obj: T, key: KeysOf<T, string>, options: readonly string[], onChange: () => void) {

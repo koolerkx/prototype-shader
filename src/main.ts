@@ -5,17 +5,24 @@ import { ViewHelper } from 'three/addons/helpers/ViewHelper.js';
 import {
   APP_MODES, DEG2RAD, LIGHT_DEFAULTS, MATERIAL_DEFAULTS, MATERIAL_MODES, PLANET_DEFAULT_PRESET, PLANET_DEFAULTS,
   PLANET_PRESET_NAMES, PLANET_PRESETS, PLANET_SHAPES, PLANET_VIEW, PRESET_NAMES, PRESETS, RANGES, SCENE_DEFAULTS, SHAPES,
-  STYLIZED_DEFAULTS, TONE_MAPPINGS, VIEW, type AppMode, type PlanetPreset, type PlanetPresetName, type Preset,
-  type PresetName, type ToneMappingName,
+  STYLIZED_DEFAULTS, TONE_MAPPINGS, VIEW, type AppMode, type PlanetPreset, type PlanetPresetName, type PlanetShapeName,
+  type Preset, type PresetName, type ToneMappingName,
 } from './config/tuning';
-import { createPlanetGeometry, createPrimitive } from './geometry/primitives';
+import { createPlanetGeometry, SHAPE_EXTENT, type PlanetGeometry } from './geometry/planetShapes';
+import { createPrimitive } from './geometry/primitives';
 import { applyDefaultLit, createDefaultLit } from './materials/defaultLit';
+import { applyOutline, createOutline } from './materials/outline';
 import {
-  addPlanetLayer, applyAtmosphere, applyOrbits, applyPlanet, applyRing, createAtmosphere, createOrbits, createRing,
-  updateOrbits, updatePlanetFrame, updatePlanetView,
+  addPlanetLayer, applyAtmosphere, applyOrbits, applyPlanet, applyRing, applyShield, createAtmosphere, createOrbits,
+  createRing, createShield, setAtmosphereShape, updatePlanetFrame, updatePlanetView,
 } from './materials/planet';
 import { addStylizedLayer, applyStylized, setStylizedBounds, updateStylizedView } from './materials/stylized';
+import { createGallery } from './ui/gallery';
 import { createPanel } from './ui/panel';
+import {
+  downloadPresets, loadUserPresets, parseImport, pickTextFile, sanitize, saveUserPresets, STATE_VERSION, upsert,
+  type SavedState,
+} from './ui/presetStore';
 
 const viewport = document.getElementById('viewport')!;
 const panelRoot = document.getElementById('panel')!;
@@ -80,6 +87,23 @@ const matParams = { ...MATERIAL_DEFAULTS };
 const lightParams = { ...LIGHT_DEFAULTS };
 const styleParams = { ...STYLIZED_DEFAULTS };
 
+// Each app mode keeps its own Material, NPR and Lighting params, so switching never overwrites the other mode's tweaks.
+type ModeParams = { material: typeof matParams; stylized: typeof styleParams; light: typeof lightParams };
+const firstPlanet: PlanetPreset = PLANET_PRESETS[PLANET_DEFAULT_PRESET];
+const planetParams = { ...PLANET_DEFAULTS, ...firstPlanet.planet };
+const modeLight = (mode: AppMode) =>
+  mode === 'planet' ? { ...LIGHT_DEFAULTS, skyIntensity: PLANET_VIEW.skyIntensity } : { ...LIGHT_DEFAULTS };
+const modeParams: Record<AppMode, ModeParams> = {
+  material: { material: { ...matParams }, stylized: { ...styleParams }, light: { ...lightParams } },
+  planet: {
+    material: { ...MATERIAL_DEFAULTS, ...firstPlanet.material },
+    stylized: { ...STYLIZED_DEFAULTS, ...firstPlanet.stylized },
+    light: modeLight('planet'),
+  },
+};
+let activeMode = sceneParams.appMode;
+let planetTime = 0; // seconds, scaled by timeScale
+
 const material = createDefaultLit();
 const styleUniforms = addStylizedLayer(material);
 const planetUniforms = addPlanetLayer(material); // inert (uPlanet = 0) in material mode
@@ -88,30 +112,26 @@ scene.add(pivot);
 const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
 mesh.castShadow = mesh.receiveShadow = true;
 pivot.add(mesh);
-const atmosphere = createAtmosphere(); // child of the mesh: spins and tilts with it
+const outline = createOutline(); // child of the mesh: shares its geometry and morph influences
+mesh.add(outline);
+const atmosphere = createAtmosphere(); // child of the mesh: marches in the planet's object space
 mesh.add(atmosphere);
-const ring = createRing(); // child of the pivot: tilts with the axis, does not spin
+const ring = createRing(); // children of the pivot: tilt with the axis, do not spin
 pivot.add(ring);
-const orbits = createOrbits(); // child of the pivot: own inclinations, do not spin with the surface
+const orbits = createOrbits();
 pivot.add(orbits);
+const shield = createShield();
+pivot.add(shield);
 const localCenter = new THREE.Vector3();
 const meshCenter = new THREE.Vector3(); // world space, per frame
 const sunDir = new THREE.Vector3();
 
-// Each app mode keeps its own Material, NPR and Lighting params, so switching never overwrites the other mode's tweaks.
-type ModeParams = { material: typeof matParams; stylized: typeof styleParams; light: typeof lightParams };
-const firstPlanet: PlanetPreset = PLANET_PRESETS[PLANET_DEFAULT_PRESET];
-const planetParams = { ...PLANET_DEFAULTS, ...firstPlanet.planet };
-const modeParams: Record<AppMode, ModeParams> = {
-  material: { material: { ...matParams }, stylized: { ...styleParams }, light: { ...lightParams } },
-  planet: {
-    material: { ...MATERIAL_DEFAULTS, ...firstPlanet.material },
-    stylized: { ...STYLIZED_DEFAULTS, ...firstPlanet.stylized },
-    light: { ...LIGHT_DEFAULTS, skyIntensity: PLANET_VIEW.skyIntensity },
-  },
-};
-let activeMode = sceneParams.appMode;
-let planetTime = 0; // seconds, scaled by timeScale
+// All planet shapes live in one geometry as morph targets; only the star is rebuilt (when its roundness changes).
+let planetGeometry: PlanetGeometry = createPlanetGeometry(planetParams.starRoundness);
+let builtRoundness = planetParams.starRoundness;
+const shapeIndex = (s: PlanetShapeName) => PLANET_SHAPES.indexOf(s);
+const morph = { from: 0, to: 0, t: 1, cycle: 0 };
+let extentNow: number = SHAPE_EXTENT.sphere;
 
 // --- Params -> scene ---
 const toneMappings: Record<ToneMappingName, THREE.ToneMapping> = {
@@ -120,18 +140,73 @@ const toneMappings: Record<ToneMappingName, THREE.ToneMapping> = {
   Neutral: THREE.NeutralToneMapping,
   None: THREE.NoToneMapping,
 };
+const RADIAL_OUTLINE_SHAPES: readonly string[] = ['cube', 'pyramid', 'cylinder', 'cone']; // hard edges: push from the centre
 
 const isPlanet = () => sceneParams.appMode === 'planet';
+const smooth01 = (t: number) => t * t * (3 - 2 * t);
+
+function attachPlanetGeometry() {
+  mesh.geometry = planetGeometry;
+  mesh.updateMorphTargets();
+  outline.morphTargetInfluences = mesh.morphTargetInfluences; // same array: the hull morphs with the surface
+}
+function ensureStarGeometry() {
+  if (planetParams.starRoundness === builtRoundness) return;
+  const old = planetGeometry;
+  planetGeometry = createPlanetGeometry(planetParams.starRoundness);
+  builtRoundness = planetParams.starRoundness;
+  if (mesh.geometry === old) {
+    attachPlanetGeometry();
+    outline.geometry = planetGeometry;
+    applyMorph();
+  }
+  old.dispose();
+}
+
+/** Sets the morph influences and everything that follows the shape: scan range, atmosphere SDF, shield size. */
+function applyMorph() {
+  const e = smooth01(morph.t);
+  const infl = mesh.morphTargetInfluences;
+  if (isPlanet() && infl) {
+    infl.fill(0);
+    infl[morph.from] += 1 - e;
+    infl[morph.to] += e;
+  }
+  const [a, b] = [planetGeometry.userData.yRange[morph.from], planetGeometry.userData.yRange[morph.to]];
+  planetUniforms.uScanRange.value.set(a[0] + (b[0] - a[0]) * e, a[1] + (b[1] - a[1]) * e);
+  const [ea, eb] = [SHAPE_EXTENT[PLANET_SHAPES[morph.from]], SHAPE_EXTENT[PLANET_SHAPES[morph.to]]];
+  extentNow = ea + (eb - ea) * e;
+  setAtmosphereShape(atmosphere, morph.from, morph.to, e, Math.max(ea, eb));
+  shield.material.uniforms.uRadius.value = planetParams.shieldRadius * extentNow;
+  outline.material.uniforms.uScanRange.value.copy(planetUniforms.uScanRange.value);
+}
+function startMorph(to: number, instant = false) {
+  if (instant || planetParams.morphSeconds <= 0) Object.assign(morph, { from: to, to, t: 1 });
+  else Object.assign(morph, { from: morph.t < 0.5 ? morph.from : morph.to, to, t: 0 });
+  applyMorph();
+}
 
 function applyShape() {
-  mesh.geometry.dispose();
-  mesh.geometry = isPlanet() ? createPlanetGeometry(sceneParams.planetShape) : createPrimitive(sceneParams.shape);
+  if (mesh.geometry !== planetGeometry) mesh.geometry.dispose();
+  if (isPlanet()) {
+    attachPlanetGeometry();
+    startMorph(shapeIndex(sceneParams.planetShape), true);
+  } else {
+    mesh.geometry = createPrimitive(sceneParams.shape);
+  }
+  outline.geometry = mesh.geometry;
   setStylizedBounds(styleUniforms, mesh.geometry);
   mesh.geometry.boundingBox!.getCenter(localCenter);
+  applyOutlineParams();
+}
+function applyOutlineParams() {
+  const radial = !isPlanet() && RADIAL_OUTLINE_SHAPES.includes(sceneParams.shape) ? 1 : 0;
+  applyOutline(outline, styleParams, localCenter, radial);
 }
 function applyMaterial() {
   applyDefaultLit(material, matParams);
   applyStylized(styleUniforms, styleParams, matParams);
+  applyOutlineParams();
 }
 function applyLight() {
   const az = lightParams.sunAzimuthDeg * DEG2RAD;
@@ -146,15 +221,38 @@ function applyLight() {
 function applyPlanetParams() {
   const planet = isPlanet();
   applyPlanet(planetUniforms, planetParams);
-  applyAtmosphere(atmosphere, planetParams, sceneParams.planetShape === 'ellipsoid' ? PLANET_VIEW.ellipsoidY : 1);
+  applyAtmosphere(atmosphere, planetParams);
   applyRing(ring, planetParams);
   applyOrbits(orbits, planetParams);
+  applyShield(shield, planetParams, extentNow);
+  applyMorph();
   planetUniforms.uPlanet.value = planet ? 1 : 0;
+  outline.material.uniforms.uScanProgress.value = planet ? planetParams.scanProgress : 1;
   pivot.position.y = planet ? PLANET_VIEW.centerY : 0;
-  pivot.rotation.z = planet ? planetParams.tiltDeg * DEG2RAD : 0;
-  atmosphere.visible = planet;
+  pivot.rotation.x = planet ? planetParams.tiltDeg * DEG2RAD : 0; // tips the north pole towards the default camera, so rings open up
+  atmosphere.visible &&= planet;
+  shield.visible &&= planet;
   ring.visible = planet && planetParams.ringOpacity > 0;
   orbits.visible = planet;
+  // A bubble needs alpha blending; switching recompiles the program once.
+  const bubble = planet && planetParams.bubble > 0;
+  if (material.transparent !== bubble) {
+    material.transparent = bubble;
+    material.depthWrite = !bubble;
+    material.needsUpdate = true;
+  }
+}
+/** Applies the current mode to the scene: helpers, background, shape and every param group. */
+function refreshScene() {
+  const planet = isPlanet();
+  grid.visible = axes.visible = ground.visible = !planet;
+  renderer.setClearColor(planet ? PLANET_VIEW.spaceBackground : VIEW.background);
+  if (!planet) mesh.rotation.set(0, 0, 0);
+  ensureStarGeometry();
+  applyShape();
+  applyMaterial();
+  applyPlanetParams();
+  applyLight();
 }
 function applyAppMode() {
   modeParams[activeMode] = { material: { ...matParams }, stylized: { ...styleParams }, light: { ...lightParams } };
@@ -162,65 +260,185 @@ function applyAppMode() {
   Object.assign(matParams, modeParams[activeMode].material);
   Object.assign(styleParams, modeParams[activeMode].stylized);
   Object.assign(lightParams, modeParams[activeMode].light);
-  const planet = isPlanet();
-  grid.visible = axes.visible = ground.visible = !planet;
-  renderer.setClearColor(planet ? PLANET_VIEW.spaceBackground : VIEW.background);
-  mesh.rotation.set(0, 0, 0);
-  applyShape();
-  applyMaterial();
-  applyPlanetParams();
-  applyLight();
+  refreshScene();
   showModeControls();
   ui.refresh();
 }
-applyShape();
-applyMaterial();
-applyPlanetParams();
-applyLight();
+refreshScene();
+
+// --- Hologram scan ---
+let scanPlaying = false;
+function playScan() {
+  if (!isPlanet()) return;
+  planetParams.scanProgress = 0;
+  scanPlaying = true;
+  applyPlanetParams();
+}
+
+// --- Presets: built-in, user (this browser), import / export ---
+// Every preset is a SavedState, so built-in, user, imported and gallery presets share one apply path.
+const USER = '★ ';
+const userPresets = loadUserPresets();
+
+function builtinState(mode: AppMode, name: string): SavedState | undefined {
+  if (mode === 'planet') {
+    const p: PlanetPreset | undefined = PLANET_PRESETS[name as PlanetPresetName];
+    return p && {
+      version: STATE_VERSION, name, appMode: mode, planetShape: p.shape ?? 'sphere',
+      planet: p.planet, material: p.material, stylized: p.stylized,
+    };
+  }
+  const p: Preset | undefined = PRESETS[name as PresetName];
+  return p && { version: STATE_VERSION, name, appMode: mode, material: p.material, stylized: p.stylized };
+}
+function stateFor(mode: AppMode, option: string): SavedState | undefined {
+  if (!option.startsWith(USER)) return builtinState(mode, option);
+  return userPresets.find((p) => p.appMode === mode && p.name === option.slice(USER.length));
+}
+function presetOptions(mode: AppMode): string[] {
+  const builtins: string[] = mode === 'planet' ? [...PLANET_PRESET_NAMES] : ['—', ...PRESET_NAMES];
+  return [...builtins, ...userPresets.filter((p) => p.appMode === mode).map((p) => USER + p.name)];
+}
+
+function captureState(name: string): SavedState {
+  return {
+    version: STATE_VERSION, name, appMode: sceneParams.appMode, shape: sceneParams.shape,
+    planetShape: sceneParams.planetShape, planet: isPlanet() ? { ...planetParams, scanProgress: 1 } : undefined,
+    material: { ...matParams }, stylized: { ...styleParams }, light: { ...lightParams },
+  };
+}
+
+/** Unknown keys are dropped and missing keys take today's defaults (see presetStore), so old files still load. */
+function applyState(s: SavedState, opt: { instant?: boolean; thumbnail?: boolean } = {}) {
+  if (sceneParams.appMode !== s.appMode) {
+    sceneParams.appMode = s.appMode;
+    applyAppMode();
+  }
+  Object.assign(matParams, sanitize(MATERIAL_DEFAULTS, s.material));
+  Object.assign(styleParams, sanitize(STYLIZED_DEFAULTS, s.stylized, { mode: MATERIAL_MODES }));
+  if (s.light) Object.assign(lightParams, sanitize(LIGHT_DEFAULTS, s.light, { toneMapping: TONE_MAPPINGS }));
+  else if (opt.thumbnail) Object.assign(lightParams, modeLight(s.appMode)); // same light for every thumbnail
+  if (s.appMode === 'planet') {
+    Object.assign(planetParams, sanitize(PLANET_DEFAULTS, s.planet));
+    ensureStarGeometry();
+    const shape = PLANET_SHAPES.find((x) => x === s.planetShape);
+    if (shape) {
+      sceneParams.planetShape = shape;
+      startMorph(shapeIndex(shape), opt.instant);
+    }
+  } else {
+    const shape = SHAPES.find((x) => x === s.shape);
+    if (shape && shape !== sceneParams.shape) {
+      sceneParams.shape = shape;
+      applyShape();
+    }
+  }
+  applyMaterial();
+  applyPlanetParams();
+  applyLight();
+  if (!opt.thumbnail) {
+    showModeControls();
+    ui.refresh();
+  }
+}
 
 // --- Panel ---
-// Header: App Mode + the preset for that mode, always visible. Tabs: Object, Surface / FX / Space (planet only),
+// Header: App Mode, the preset of the current mode, preset tools. Tabs: Object, Surface / FX / Space (planet only),
 // Material, NPR, Light. `materialOnly` / `planetOnly` hold rows and sections that exist in one mode only.
 const ui = createPanel(panelRoot);
 const materialOnly: HTMLElement[] = [];
 const planetOnly: HTMLElement[] = [];
 ui.select('App Mode', sceneParams, 'appMode', APP_MODES, applyAppMode);
 
-// Presets reset Material + NPR params to defaults, then apply overrides. '—' keeps the current values.
-const presetParams = { preset: '—' };
-materialOnly.push(ui.select('Preset', presetParams, 'preset', ['—', ...PRESET_NAMES], () => {
-  const p: Preset | undefined = PRESETS[presetParams.preset as PresetName];
-  if (!p) return;
-  Object.assign(matParams, MATERIAL_DEFAULTS, p.material);
-  Object.assign(styleParams, STYLIZED_DEFAULTS, p.stylized);
-  applyMaterial();
-  showModeControls();
-  ui.refresh();
-}));
-
-// Planet presets reset Planet + Material + NPR params to defaults, then apply overrides.
+const presetParams = { preset: '—' }; // '—' keeps the current values
 const planetPresetParams = { planetPreset: PLANET_DEFAULT_PRESET as string };
-planetOnly.push(ui.select('Planet Preset', planetPresetParams, 'planetPreset', PLANET_PRESET_NAMES, () => {
-  const p: PlanetPreset = PLANET_PRESETS[planetPresetParams.planetPreset as PlanetPresetName];
-  Object.assign(planetParams, PLANET_DEFAULTS, p.planet);
-  Object.assign(matParams, MATERIAL_DEFAULTS, p.material);
-  Object.assign(styleParams, STYLIZED_DEFAULTS, p.stylized);
-  applyMaterial();
-  applyPlanetParams();
-  showModeControls();
+const presetValue = () => (isPlanet() ? planetPresetParams.planetPreset : presetParams.preset);
+const onPreset = () => {
+  const s = stateFor(sceneParams.appMode, presetValue());
+  if (s) applyState(s);
+};
+const materialPresetRow = ui.select('Preset', presetParams, 'preset', presetOptions('material'), onPreset);
+const planetPresetRow = ui.select('Planet Preset', planetPresetParams, 'planetPreset', presetOptions('planet'), onPreset);
+materialOnly.push(materialPresetRow);
+planetOnly.push(planetPresetRow);
+
+function selectPreset(option: string) {
+  if (isPlanet()) planetPresetParams.planetPreset = option;
+  else presetParams.preset = option;
+  ui.setOptions(materialPresetRow, presetOptions('material'));
+  ui.setOptions(planetPresetRow, presetOptions('planet'));
   ui.refresh();
-}));
-planetOnly.push(ui.button('Planet Name', 'Copy name', 'copyPlanetName', (b) => {
-  const show = (text: string) => {
-    b.textContent = text;
-    setTimeout(() => (b.textContent = 'Copy name'), 1200);
-  };
-  const name = planetPresetParams.planetPreset;
-  navigator.clipboard.writeText(name).then(
-    () => show(`Copied: ${name}`),
-    () => show(copyWithTextarea(name) ? `Copied: ${name}` : 'Copy failed'),
-  );
-}));
+}
+const flash = (b: HTMLButtonElement, text: string) => {
+  const old = b.textContent;
+  b.textContent = text;
+  setTimeout(() => (b.textContent = old), 1200);
+};
+const persist = (b: HTMLButtonElement) => {
+  if (!saveUserPresets(userPresets)) flash(b, 'Storage blocked');
+};
+
+ui.buttons('Presets', 'presetTools', [
+  {
+    text: 'Save',
+    onClick: (b) => {
+      const current = presetValue().replace(USER, '');
+      const name = window.prompt('Save preset as', current === '—' ? 'My Preset' : current)?.trim();
+      if (!name) return;
+      upsert(userPresets, captureState(name));
+      persist(b);
+      selectPreset(USER + name);
+      flash(b, 'Saved');
+    },
+  },
+  {
+    text: 'Delete',
+    onClick: (b) => {
+      const option = presetValue();
+      if (!option.startsWith(USER)) return flash(b, 'Built-in');
+      const name = option.slice(USER.length);
+      if (!window.confirm(`Delete preset "${name}" from this browser?`)) return;
+      const i = userPresets.findIndex((p) => p.appMode === sceneParams.appMode && p.name === name);
+      if (i >= 0) userPresets.splice(i, 1);
+      persist(b);
+      selectPreset(isPlanet() ? PLANET_DEFAULT_PRESET : '—');
+    },
+  },
+  {
+    text: 'Import',
+    onClick: async (b) => {
+      const text = await pickTextFile();
+      if (!text) return;
+      try {
+        const list = parseImport(text);
+        for (const s of list) upsert(userPresets, s);
+        persist(b);
+        selectPreset(presetValue());
+        flash(b, `+${list.length}`);
+      } catch {
+        flash(b, 'Bad file');
+      }
+    },
+  },
+  {
+    text: 'Export',
+    // All user presets; with none saved yet, the current settings.
+    onClick: () => downloadPresets(userPresets.length ? userPresets : [captureState(presetValue().replace(USER, ''))]),
+  },
+]);
+ui.buttons('View', 'presetView', [
+  { text: 'Gallery', onClick: () => openGallery() },
+  {
+    text: 'Copy name',
+    onClick: (b) => {
+      const name = presetValue().replace(USER, '');
+      navigator.clipboard.writeText(name).then(
+        () => flash(b, 'Copied'),
+        () => flash(b, copyWithTextarea(name) ? 'Copied' : 'Copy failed'),
+      );
+    },
+  },
+]);
 
 // Fallback for pages where the Clipboard API is blocked (embedded or permission-restricted browsers).
 function copyWithTextarea(text: string): boolean {
@@ -240,13 +458,23 @@ ui.tab('Object');
 materialOnly.push(ui.section('Shape'));
 ui.select('Shape', sceneParams, 'shape', SHAPES, applyShape);
 planetOnly.push(ui.section('Planet Shape & Motion'));
-ui.select('Planet Shape', sceneParams, 'planetShape', PLANET_SHAPES, () => {
-  applyShape();
+ui.select('Planet Shape', sceneParams, 'planetShape', PLANET_SHAPES, () => startMorph(shapeIndex(sceneParams.planetShape)));
+ui.range('Star Roundness', planetParams, 'starRoundness', RANGES.unit, () => {
+  ensureStarGeometry();
   applyPlanetParams();
 });
+ui.range('Morph Seconds', planetParams, 'morphSeconds', RANGES.morphSeconds, applyPlanetParams);
+ui.range('Morph Cycle s', planetParams, 'morphCycleSeconds', RANGES.morphCycleSeconds, applyPlanetParams);
 ui.range('Axial Tilt°', planetParams, 'tiltDeg', RANGES.tiltDeg, applyPlanetParams);
 ui.range('Spin °/s', planetParams, 'spinDegPerSec', RANGES.degPerSec, applyPlanetParams);
 ui.range('Time Scale', planetParams, 'timeScale', RANGES.timeScale, applyPlanetParams);
+
+planetOnly.push(ui.section('Hologram Scan'));
+ui.buttons('Scan', 'scanPlay', [{ text: 'Play scan', onClick: playScan }]);
+ui.range('Scan Progress', planetParams, 'scanProgress', RANGES.unit, applyPlanetParams);
+ui.color('Scan Color', planetParams, 'scanColor', applyPlanetParams);
+ui.range('Scan Width', planetParams, 'scanWidth', RANGES.scanWidth, applyPlanetParams);
+ui.range('Scan Seconds', planetParams, 'scanSeconds', RANGES.scanSeconds, applyPlanetParams);
 
 // --- Tabs: Surface, FX, Space (planet only) ---
 const planetTabs = [ui.tab('Surface')];
@@ -278,6 +506,14 @@ ui.range('Band Speed °/s', planetParams, 'bandSpeedDegPerSec', RANGES.degPerSec
 ui.range('Marble', planetParams, 'marble', RANGES.unit, applyPlanetParams);
 ui.range('Marble Frequency', planetParams, 'marbleFrequency', RANGES.marbleFrequency, applyPlanetParams);
 
+ui.section('Craters', false);
+ui.range('Craters', planetParams, 'craters', RANGES.unit, applyPlanetParams);
+ui.range('Crater Scale', planetParams, 'craterScale', RANGES.craterScale, applyPlanetParams);
+ui.range('Crater Density', planetParams, 'craterDensity', RANGES.unit, applyPlanetParams);
+
+ui.section('Bubble', false);
+ui.range('Bubble', planetParams, 'bubble', RANGES.unit, applyPlanetParams);
+
 ui.section('Machine Panels', false);
 ui.range('Panels', planetParams, 'panels', RANGES.unit, applyPlanetParams);
 ui.range('Panel Scale', planetParams, 'panelScale', RANGES.panelScale, applyPlanetParams);
@@ -291,6 +527,7 @@ ui.range('Cloud Softness', planetParams, 'cloudSoftness', RANGES.unit, applyPlan
 ui.range('Cloud Scale', planetParams, 'cloudScale', RANGES.cloudScale, applyPlanetParams);
 ui.range('Cloud Speed °/s', planetParams, 'cloudSpeedDegPerSec', RANGES.degPerSec, applyPlanetParams);
 ui.color('Cloud Color', planetParams, 'cloudColor', applyPlanetParams);
+ui.range('Cloud Shadow', planetParams, 'cloudShadow', RANGES.unit, applyPlanetParams);
 
 ui.section('Glow & City Lights');
 ui.color('Glow Color', planetParams, 'glowColor', applyPlanetParams);
@@ -315,6 +552,15 @@ ui.section('Atmosphere');
 ui.color('Atmo Color', planetParams, 'atmoColor', applyPlanetParams);
 ui.range('Atmo Intensity', planetParams, 'atmoIntensity', RANGES.atmoIntensity, applyPlanetParams);
 ui.range('Atmo Thickness', planetParams, 'atmoThickness', RANGES.atmoThickness, applyPlanetParams);
+ui.color('Sunset Color', planetParams, 'atmoSunsetColor', applyPlanetParams);
+ui.range('Sunset Strength', planetParams, 'atmoSunset', RANGES.atmoSunset, applyPlanetParams);
+
+ui.section('Hex Shield');
+ui.range('Shield Intensity', planetParams, 'shieldIntensity', RANGES.shieldIntensity, applyPlanetParams);
+ui.color('Shield Color', planetParams, 'shieldColor', applyPlanetParams);
+ui.range('Shield Radius', planetParams, 'shieldRadius', RANGES.shieldRadius, applyPlanetParams);
+ui.range('Hex Count', planetParams, 'shieldHexCount', RANGES.shieldHexCount, applyPlanetParams);
+ui.range('Hit Rate', planetParams, 'shieldHitRate', RANGES.shieldHitRate, applyPlanetParams);
 
 ui.section('Ring');
 ui.range('Ring Opacity', planetParams, 'ringOpacity', RANGES.unit, applyPlanetParams);
@@ -397,6 +643,10 @@ ui.range('Rim Width', styleParams, 'rimWidth', RANGES.rimWidth, applyMaterial);
 ui.range('Rim Softness', styleParams, 'rimSoftness', RANGES.rimSoftness, applyMaterial);
 ui.range('Rim Light Side', styleParams, 'rimLightSide', RANGES.rimLightSide, applyMaterial);
 
+stylizedSections.push(ui.section('Outline'));
+ui.range('Outline Width', styleParams, 'outlineWidth', RANGES.outlineWidth, applyMaterial);
+ui.color('Outline Color', styleParams, 'outlineColor', applyMaterial);
+
 // --- Tab: Light ---
 ui.tab('Light');
 ui.section('Lighting');
@@ -418,34 +668,134 @@ function showModeControls() {
 }
 showModeControls();
 
+// --- Per-frame view inputs (also used for gallery thumbnails) ---
+function updateFrame(cam: THREE.Camera) {
+  pivot.updateMatrixWorld();
+  cam.updateMatrixWorld();
+  meshCenter.copy(localCenter).applyMatrix4(mesh.matrixWorld);
+  sunDir.copy(sun.position).normalize();
+  updateStylizedView(styleUniforms, sunDir, meshCenter, cam);
+  updatePlanetView(planetUniforms, mesh, cam);
+  const fade = isPlanet() ? smooth01(planetParams.scanProgress) : 1;
+  updatePlanetFrame(atmosphere, ring, orbits, shield, mesh, cam, sunDir, sun, meshCenter, planetTime, fade);
+}
+
+// --- Gallery: thumbnails rendered with the main renderer into a corner, then copied out ---
+const THUMB_PX = 168;
+const thumbCamera = new THREE.PerspectiveCamera(32, 1, 0.05, 200);
+let galleryBusy = false;
+let snapshot: {
+  scene: typeof sceneParams; planet: typeof planetParams; mat: typeof matParams; style: typeof styleParams;
+  light: typeof lightParams; modes: Record<AppMode, ModeParams>; activeMode: AppMode; morph: typeof morph;
+} | undefined;
+
+function renderThumbnail(state: SavedState): HTMLCanvasElement {
+  applyState(state, { instant: true, thumbnail: true });
+  if (isPlanet()) thumbCamera.position.set(0, PLANET_VIEW.centerY + 1.6, 3.4);
+  else thumbCamera.position.set(2.0, 1.5, 2.4);
+  thumbCamera.lookAt(0, isPlanet() ? PLANET_VIEW.centerY : 0.55, 0);
+  const resolution = outline.material.uniforms.uResolution.value;
+  const saved = resolution.clone();
+  resolution.set(THUMB_PX, THUMB_PX);
+  updateFrame(thumbCamera);
+  const size = renderer.getSize(new THREE.Vector2());
+  renderer.setScissorTest(true);
+  renderer.setViewport(0, 0, THUMB_PX, THUMB_PX);
+  renderer.setScissor(0, 0, THUMB_PX, THUMB_PX);
+  renderer.clear();
+  renderer.render(scene, thumbCamera);
+  // Copy in the same task as the render, before the browser presents the frame.
+  const px = Math.round(THUMB_PX * renderer.getPixelRatio());
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = px;
+  canvas.getContext('2d')!.drawImage(renderer.domElement, 0, renderer.domElement.height - px, px, px, 0, 0, px, px);
+  renderer.setScissorTest(false);
+  renderer.setViewport(0, 0, size.x, size.y);
+  resolution.copy(saved);
+  return canvas;
+}
+
+const gallery = createGallery<SavedState>(viewport, renderThumbnail, {
+  begin() {
+    galleryBusy = true;
+    scanPlaying = false;
+    snapshot = {
+      scene: { ...sceneParams }, planet: { ...planetParams }, mat: { ...matParams }, style: { ...styleParams },
+      light: { ...lightParams }, modes: structuredClone(modeParams), activeMode, morph: { ...morph },
+    };
+  },
+  end() {
+    const s = snapshot!;
+    Object.assign(modeParams, s.modes);
+    activeMode = s.activeMode;
+    Object.assign(sceneParams, s.scene);
+    Object.assign(planetParams, s.planet);
+    Object.assign(matParams, s.mat);
+    Object.assign(styleParams, s.style);
+    Object.assign(lightParams, s.light);
+    refreshScene();
+    Object.assign(morph, s.morph);
+    applyMorph();
+    showModeControls();
+    ui.refresh();
+    galleryBusy = false;
+  },
+  pick(state) {
+    applyState(state);
+    selectPreset(userPresets.includes(state) ? USER + state.name : state.name);
+    playScan(); // enter with the hologram build-up
+  },
+});
+
+function openGallery() {
+  const items = (mode: AppMode) =>
+    presetOptions(mode).filter((o) => o !== '—').map((o) => ({ name: o, state: stateFor(mode, o)! }));
+  gallery.open([
+    { title: 'Planet', items: items('planet') },
+    { title: 'Material', items: items('material') },
+  ]);
+}
+
 // --- Resize / loop ---
 new ResizeObserver(() => {
   const { clientWidth: w, clientHeight: h } = viewport;
   renderer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  outline.material.uniforms.uResolution.value.set(w, h);
 }).observe(viewport);
 
 let last = 0;
 renderer.setAnimationLoop((t) => {
-  const dt = (t - last) / 1000;
+  const dt = Math.min((t - last) / 1000, 0.1); // clamp: no jump after a hidden tab
   last = t;
+  if (galleryBusy) return;
   if (viewHelper.animating) viewHelper.update(dt);
   controls.update(dt);
   if (isPlanet()) {
-    const step = Math.min(dt, 0.1) * planetParams.timeScale; // clamp: no jump after a hidden tab
+    const step = dt * planetParams.timeScale;
     planetTime += step;
     planetUniforms.uPlanetTime.value = planetTime;
     mesh.rotation.y += planetParams.spinDegPerSec * DEG2RAD * step;
+    if (morph.t < 1) {
+      morph.t = Math.min(1, morph.t + dt / Math.max(planetParams.morphSeconds, 1e-3));
+      applyMorph();
+    } else if (planetParams.morphCycleSeconds > 0 && (morph.cycle += dt) >= planetParams.morphCycleSeconds) {
+      morph.cycle = 0;
+      sceneParams.planetShape = PLANET_SHAPES[(morph.to + 1) % PLANET_SHAPES.length];
+      startMorph(shapeIndex(sceneParams.planetShape));
+      ui.refresh();
+    }
+    if (scanPlaying) {
+      planetParams.scanProgress = Math.min(1, planetParams.scanProgress + dt / planetParams.scanSeconds);
+      planetUniforms.uScanProgress.value = outline.material.uniforms.uScanProgress.value = planetParams.scanProgress;
+      if (planetParams.scanProgress >= 1) {
+        scanPlaying = false;
+        ui.refresh();
+      }
+    }
   }
-  pivot.updateMatrixWorld();
-  meshCenter.copy(localCenter).applyMatrix4(mesh.matrixWorld);
-  sunDir.copy(sun.position).normalize();
-  camera.updateMatrixWorld();
-  updateStylizedView(styleUniforms, sunDir, meshCenter, camera);
-  updatePlanetFrame(atmosphere, ring, sunDir, sun, meshCenter);
-  updatePlanetView(planetUniforms, mesh, camera);
-  updateOrbits(orbits, planetTime);
+  updateFrame(camera);
   renderer.clear();
   renderer.render(scene, camera);
   viewHelper.render(renderer);

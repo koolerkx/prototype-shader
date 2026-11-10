@@ -34,6 +34,20 @@
       .row select, .row button { grid-column: 2 / 4; }
       .row button { background: #2f333a; color: inherit; border: 1px solid #3a3e45; border-radius: 3px; padding: 3px 6px; font: inherit; cursor: pointer; }
       .row button:hover { background: #3a3f47; }
+      .row .btns { grid-column: 2 / 4; display: flex; gap: 4px; }
+      .row .btns button { flex: 1; min-width: 0; }
+      #gallery { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; background: rgba(11, 13, 26, .96); }
+      .gallery-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid #33363c; }
+      .gallery-head button { background: #2f333a; color: inherit; border: 1px solid #3a3e45; border-radius: 3px; padding: 4px 10px; font: inherit; cursor: pointer; }
+      .gallery-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 16px; }
+      .gallery-body h4 { margin: 14px 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #8a9099; }
+      .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 10px; }
+      .gallery-card { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px; background: #1b1d21;
+        border: 1px solid #33363c; border-radius: 6px; color: inherit; font: inherit; cursor: pointer; }
+      .gallery-card:hover { border-color: #5fa8ff; }
+      .gallery-thumb { width: 168px; height: 168px; display: grid; place-items: center; color: #5a5f68; }
+      .gallery-thumb:empty::after { content: '…'; }
+      .gallery-thumb canvas { width: 168px; height: 168px; border-radius: 4px; }
       .row input[type=color] { width: 100%; height: 22px; padding: 0; border: 1px solid #3a3e45; background: none; }
     </style>
   </head>

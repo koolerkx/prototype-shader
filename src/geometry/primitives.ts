@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PLANET_VIEW, type PlanetShapeName, type ShapeName } from '../config/tuning';
+import type { ShapeName } from '../config/tuning';
 
 const factories: Record<ShapeName, () => THREE.BufferGeometry> = {
   sphere: () => new THREE.SphereGeometry(0.6, 96, 64),
@@ -26,18 +26,3 @@ export function createPrimitive(name: ShapeName): THREE.BufferGeometry {
   return g;
 }
 
-const R = PLANET_VIEW.radius;
-const planetFactories: Record<PlanetShapeName, () => THREE.BufferGeometry> = {
-  sphere: () => new THREE.SphereGeometry(R, 128, 96),
-  ellipsoid: () => new THREE.SphereGeometry(R, 128, 96).scale(1, PLANET_VIEW.ellipsoidY, 1),
-  // Detail 0 keeps the flat faces (non-indexed, per-face normals).
-  dodecahedron: () => new THREE.DodecahedronGeometry(R, 0),
-  icosahedron: () => new THREE.IcosahedronGeometry(R, 0),
-};
-
-/** Planet shapes are centred on the origin so they can spin in place. */
-export function createPlanetGeometry(name: PlanetShapeName): THREE.BufferGeometry {
-  const g = planetFactories[name]();
-  g.computeBoundingBox();
-  return g;
-}

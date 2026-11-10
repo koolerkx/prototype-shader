@@ -50,6 +50,8 @@ export const STYLIZED_DEFAULTS = {
   rimWidth: 0.2,
   rimSoftness: 0.1,
   rimLightSide: 0, // -1 = back-lit side only, 0 = everywhere, 1 = sun-lit side only
+  outlineWidth: 0, // inverted hull, screen pixels; 0 = off
+  outlineColor: '#2a1f4a',
 };
 
 // Each preset starts from the defaults above and overrides only the listed values. Lighting is not touched.
@@ -116,13 +118,21 @@ export const PRESET_NAMES = Object.keys(PRESETS) as PresetName[];
 export const APP_MODES = ['material', 'planet'] as const;
 export type AppMode = (typeof APP_MODES)[number];
 
-export const PLANET_SHAPES = ['sphere', 'ellipsoid', 'dodecahedron', 'icosahedron'] as const;
+// Order = morph target index; the atmosphere SDF uses the same ids.
+export const PLANET_SHAPES = ['sphere', 'ellipsoid', 'dodecahedron', 'icosahedron', 'torus', 'starTorus'] as const;
 export type PlanetShapeName = (typeof PLANET_SHAPES)[number];
 
 export const PLANET_VIEW = {
   centerY: 0.6, // world units; same centre as the material-mode sphere
   radius: 0.6,
   ellipsoidY: 0.8, // polar scale of the ellipsoid
+  torusMajor: 0.68, // in planet radii
+  torusTube: 0.3,
+  starOuter: 0.85, // star centreline radius at the tips, in planet radii
+  starInner: 0.5, // valley radius / tip radius
+  starTube: 0.18,
+  gridU: 256, // morph grid: every planet shape is the same UV grid, so any shape can morph into any other
+  gridV: 128,
   ringMin: 1.1, // ring mesh extent, in planet radii; the shader cuts the visible band inside it
   ringMax: 3.2,
   orbitTube: 0.004, // orbit line thickness, world units
@@ -135,6 +145,14 @@ export const PLANET_DEFAULTS = {
   tiltDeg: 15,
   spinDegPerSec: 6,
   timeScale: 1, // 0 = pause every animation
+  starRoundness: 0.5, // star torus: 0 = sharp tips, 1 = round
+  morphSeconds: 1.2, // shape change duration; 0 = instant
+  morphCycleSeconds: 0, // > 0: morph through every shape on a timer
+  // Hologram scan transition (UE: Masked material, OpacityMask from object height)
+  scanProgress: 1, // 0 = hidden, 1 = fully built
+  scanColor: '#5fe8ff',
+  scanWidth: 0.08, // glowing band below the front, in object heights
+  scanSeconds: 2.5,
   // Terrain
   seed: 0,
   noiseScale: 1.6,
@@ -166,12 +184,19 @@ export const PLANET_DEFAULTS = {
   panelScale: 8, // lattice cells per radius
   panelSeam: 0.012, // groove width, in planet radii
   panelMetallic: 0.8,
+  // Craters: bowls with raised rims on a 3D cell grid
+  craters: 0,
+  craterScale: 4, // cells per radius
+  craterDensity: 0.5, // fraction of cells with a crater
+  // Bubble: Fresnel opacity + thin film that follows the surface pattern (needs Thin Film > 0 for colour)
+  bubble: 0,
   // Clouds
   cloudCover: 0,
   cloudSoftness: 0.08,
   cloudScale: 2.5,
   cloudSpeedDegPerSec: 3,
   cloudColor: '#ffffff',
+  cloudShadow: 0.5, // clouds darken the ground on the sun side
   // Emissive: magma below a height, cracks, and city lights on the night side
   glowColor: '#ff5a1f',
   glowIntensity: 0,
@@ -192,6 +217,14 @@ export const PLANET_DEFAULTS = {
   atmoColor: '#7fd8ff',
   atmoIntensity: 1,
   atmoThickness: 0.12, // in planet radii
+  atmoSunsetColor: '#ff8a5a', // scattering colour at the terminator and when back-lit
+  atmoSunset: 1,
+  // Hexagon energy shield (UE: additive translucent sphere)
+  shieldIntensity: 0,
+  shieldColor: '#5fd8ff',
+  shieldRadius: 1.35, // in planet radii
+  shieldHexCount: 24, // hexagons around the equator
+  shieldHitRate: 0.5, // impacts per second
   // Ring (UE: translucent mesh, planet shadow from a sphere test)
   ringOpacity: 0,
   ringInner: 1.5, // in planet radii
@@ -211,7 +244,7 @@ export const PLANET_DEFAULTS = {
   orbitPulseLength: 0.35, // fraction of the gap between pulses
 };
 
-export type PlanetPreset = Preset & { planet?: Partial<typeof PLANET_DEFAULTS> };
+export type PlanetPreset = Preset & { planet?: Partial<typeof PLANET_DEFAULTS>; shape?: PlanetShapeName };
 // Planets are round, so the object-height gradient and spherical normal are off by default.
 const PLANET_STYLE = { normalSoften: 0, gradientStrength: 0 };
 
@@ -368,6 +401,88 @@ export const PLANET_PRESETS = {
       rimColor: '#ffffff', rimIntensity: 0.5, rimWidth: 0.25,
     },
   },
+  'Soap Bubble': {
+    planet: {
+      seaLevel: 0, bubble: 1, noiseScale: 0.9, detail: 3, warp: 1.2, flowSpeed: 0.15, bump: 0.15,
+      lowColor: '#ffffff', midColor: '#eef6ff', highColor: '#fff0fa', landRoughness: 0.03, cloudShadow: 0,
+      atmoColor: '#cfe8ff', atmoIntensity: 0.4, atmoSunset: 0.3, orbitCount: 1, orbitColor: '#ffd6f0', orbitIntensity: 0.8,
+    },
+    material: { thinFilm: 1, thinFilmThicknessNm: 900, thinFilmIor: 1.33, clearCoat: 0.5, clearCoatRoughness: 0.02 },
+    stylized: { ...PLANET_STYLE, shadeStrength: 0, terminatorIntensity: 0, rimColor: '#ffffff', rimIntensity: 0.5, rimWidth: 0.15 },
+  },
+  'Mochi Moon': {
+    planet: {
+      seaLevel: 0, noiseScale: 1.5, detail: 3, warp: 0.2, bump: 1.2, craters: 1, craterScale: 4, craterDensity: 0.55,
+      lowColor: '#c9b8d8', midColor: '#e8dcef', highColor: '#fff6fb', landRoughness: 0.85,
+      atmoColor: '#ffd6f0', atmoIntensity: 0.3, atmoSunset: 0.5,
+    },
+    stylized: {
+      ...PLANET_STYLE, shadeColor: '#9b7bff', shadeStrength: 0.4, terminatorColor: '#ff9ab8', terminatorIntensity: 0.4,
+      rimColor: '#ffffff', rimIntensity: 0.3, outlineWidth: 2, outlineColor: '#5a3a6b',
+    },
+  },
+  'Sunset Terra': {
+    planet: {
+      seaLevel: 0.5, noiseScale: 1.3, detail: 4, warp: 0.3, deepColor: '#16367a', shallowColor: '#2f7fb8',
+      lowColor: '#4f7a3a', midColor: '#a8925a', highColor: '#ece6dc', polarCap: 0.15,
+      cloudCover: 0.45, cloudSoftness: 0.12, cloudShadow: 0.8,
+      atmoColor: '#5fb0ff', atmoIntensity: 1.4, atmoThickness: 0.1, atmoSunsetColor: '#ff6a2a', atmoSunset: 1.6,
+    },
+    stylized: {
+      ...PLANET_STYLE, shadeColor: '#3a4aff', shadeStrength: 0.15, terminatorColor: '#ff7a3a', terminatorIntensity: 0.2,
+      terminatorWidth: 0.15, rimIntensity: 0,
+    },
+  },
+  'Aegis Fortress': {
+    planet: {
+      seaLevel: 0, lowColor: '#4a5266', midColor: '#7a8396', highColor: '#b8c0d0', landRoughness: 0.4, warp: 0.3,
+      panels: 1, panelScale: 10, panelSeam: 0.005, panelMetallic: 0.8,
+      cityColor: '#ffb35a', cityIntensity: 3, cityDensity: 0.5,
+      shieldIntensity: 1.2, shieldColor: '#5fd8ff', shieldRadius: 1.35, shieldHexCount: 24, shieldHitRate: 0.6,
+      atmoIntensity: 0.3, atmoColor: '#5fd8ff', orbitCount: 2, orbitRadius: 1.7, orbitColor: '#ffb35a', orbitColorB: '#5fd8ff',
+    },
+    stylized: {
+      ...PLANET_STYLE, shadeColor: '#4a5aff', shadeStrength: 0.2, terminatorColor: '#ff9a6a', terminatorIntensity: 0.15,
+      rimColor: '#9fe8ff', rimIntensity: 0.4, rimLightSide: -0.6,
+    },
+  },
+  'Holo Blueprint': {
+    planet: {
+      seaLevel: 0, noiseScale: 1.2, detail: 3, lowColor: '#08142a', midColor: '#0c2140', highColor: '#123060',
+      landRoughness: 0.35, neonColor: '#3fd8ff', neonColorB: '#9ff0ff', neonIntensity: 1.5, neonContours: 10,
+      panels: 0.35, panelScale: 8, panelSeam: 0.004, neonSeams: 1, scanColor: '#5fe8ff', scanWidth: 0.12,
+      atmoColor: '#3fd8ff', atmoIntensity: 0.8, orbitCount: 3, orbitColor: '#3fd8ff', orbitColorB: '#9ff0ff',
+    },
+    stylized: { ...PLANET_STYLE, shadeColor: '#1a3aff', shadeStrength: 0.3, terminatorIntensity: 0, rimColor: '#3fd8ff', rimIntensity: 0.8 },
+  },
+  'Donut Party': {
+    shape: 'torus',
+    planet: {
+      tiltDeg: 55, seaLevel: 0.55, deepColor: '#d9a066', shallowColor: '#e8b47a', lowColor: '#ff9ec7', midColor: '#ffc4dd',
+      highColor: '#fff0f6', oceanRoughness: 0.7, landRoughness: 0.35, noiseScale: 1.4, detail: 3, warp: 0.6, bump: 0.8,
+      cityColor: '#ffffff', cityIntensity: 0, atmoColor: '#ffd6f0', atmoIntensity: 0.6,
+      orbitCount: 2, orbitRadius: 1.4, orbitColor: '#7fd8ff', orbitColorB: '#ffe08a',
+    },
+    material: { clearCoat: 0.6, clearCoatRoughness: 0.1 },
+    stylized: {
+      ...PLANET_STYLE, shadeColor: '#b45cff', shadeStrength: 0.35, terminatorColor: '#ff7a8a', terminatorIntensity: 0.35,
+      rimColor: '#ffffff', rimIntensity: 0.4, outlineWidth: 2, outlineColor: '#6b2a4a',
+    },
+  },
+  'Lucky Star': {
+    shape: 'starTorus',
+    planet: {
+      tiltDeg: 70, starRoundness: 0.6, seaLevel: 0, lowColor: '#ffb84a', midColor: '#ffd84a', highColor: '#fff2a8',
+      landRoughness: 0.25, noiseScale: 1.3, detail: 3, bump: 0.6, neonColor: '#ff7ad8', neonColorB: '#ffe08a',
+      neonIntensity: 1, neonContours: 6, atmoColor: '#ffe08a', atmoIntensity: 0.8,
+      orbitCount: 2, orbitRadius: 1.45, orbitColor: '#ff7ad8', orbitColorB: '#7fd8ff',
+    },
+    material: { clearCoat: 1, clearCoatRoughness: 0.05 },
+    stylized: {
+      ...PLANET_STYLE, shadeColor: '#ff7a5a', shadeStrength: 0.35, terminatorColor: '#ff5a8a', terminatorIntensity: 0.3,
+      rimColor: '#fff6d0', rimIntensity: 0.5, outlineWidth: 2, outlineColor: '#7a4a1a',
+    },
+  },
 } satisfies Record<string, PlanetPreset>;
 export type PlanetPresetName = keyof typeof PLANET_PRESETS;
 export const PLANET_PRESET_NAMES = Object.keys(PLANET_PRESETS) as PlanetPresetName[];
@@ -442,6 +557,17 @@ export const RANGES: Record<string, Range> = {
   orbitSpeedDegPerSec: { min: -360, max: 360, step: 1 },
   orbitPulses: { min: 1, max: 12, step: 1 },
   orbitPulseLength: { min: 0.05, max: 1, step: 0.01 },
+  morphSeconds: { min: 0, max: 5, step: 0.05 },
+  morphCycleSeconds: { min: 0, max: 10, step: 0.1 },
+  scanWidth: { min: 0.01, max: 0.4, step: 0.005 },
+  scanSeconds: { min: 0.2, max: 10, step: 0.1 },
+  craterScale: { min: 1, max: 12, step: 0.1 },
+  atmoSunset: { min: 0, max: 3, step: 0.01 },
+  shieldIntensity: { min: 0, max: 5, step: 0.01 },
+  shieldRadius: { min: 1.05, max: 2.5, step: 0.01 },
+  shieldHexCount: { min: 6, max: 64, step: 1 },
+  shieldHitRate: { min: 0, max: 3, step: 0.05 },
+  outlineWidth: { min: 0, max: 8, step: 0.1 },
 };
 
 export const VIEW = {

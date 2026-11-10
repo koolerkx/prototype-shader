@@ -1,3 +1,5 @@
+import { PLANET_VIEW } from '../config/tuning';
+
 // Planet surface: patched into the same MeshPhysicalMaterial as the stylized layer, so UE lighting, the built-in
 // layers and the NPR layer all still apply. It only drives material inputs: Base Color, Roughness, Normal, Emissive.
 // UE: one master material with 3D noise on the object-space direction. Production would bake the noise into
@@ -5,10 +7,13 @@
 
 export const PLANET_VERTEX_PARS = /* glsl */ `
 varying vec3 vPlanetObj;
+varying vec3 vPlanetObjN;
 `;
 
+// Before <project_vertex>: object-space position and normal after the morph targets.
 export const PLANET_VERTEX = /* glsl */ `
 vPlanetObj = transformed;
+vPlanetObjN = objectNormal;
 `;
 
 // 3D simplex noise: Ashima Arts / Stefan Gustavson, MIT licence.
@@ -73,8 +78,10 @@ vec3 planetRotY( vec3 p, float a ) {
 
 export const PLANET_UNIFORMS = /* glsl */ `
 varying vec3 vPlanetObj;
+varying vec3 vPlanetObjN;
 uniform float uPlanet;
 uniform float uPlanetTime;
+uniform float uPlanetInvRadius;
 uniform mat3 uPlanetObjToView;
 uniform float uSeed;
 uniform float uNoiseScale;
@@ -102,11 +109,16 @@ uniform float uPanels;
 uniform float uPanelScale;
 uniform float uPanelSeam;
 uniform float uPanelMetallic;
+uniform float uCraters;
+uniform float uCraterScale;
+uniform float uCraterDensity;
+uniform float uBubble;
 uniform float uCloudCover;
 uniform float uCloudSoftness;
 uniform float uCloudScale;
 uniform float uCloudSpeed;
 uniform vec3 uCloudColor;
+uniform float uCloudShadow;
 uniform vec3 uGlowColor;
 uniform float uGlowIntensity;
 uniform float uGlowLevel;
@@ -121,13 +133,23 @@ uniform float uNeonIntensity;
 uniform float uNeonSeams;
 uniform float uNeonContours;
 uniform float uNeonSpeed;
+uniform float uScanProgress;
+uniform vec2 uScanRange;
+uniform vec3 uScanColor;
+uniform float uScanWidth;
 ${NOISE}
 
-// Surface height 0..1 on the unit direction. One function feeds both the colour pass and the normal,
-// so colour and relief always match (UE: one height texture drives Base Color and the normal map).
-float planetHeight( vec3 dir, out vec3 warp, out float terrain, out float seam, out float cellHash ) {
+vec3 planetHash3( vec3 p ) {
+	p = vec3( dot( p, vec3( 127.1, 311.7, 74.7 ) ), dot( p, vec3( 269.5, 183.3, 246.1 ) ), dot( p, vec3( 113.5, 271.9, 124.6 ) ) );
+	return fract( sin( p ) * 43758.5453123 );
+}
+
+// Surface height 0..1 at an object-space point (in planet radii). One function feeds both the colour pass and the
+// normal, so colour and relief always match (UE: one height texture drives Base Color and the normal map).
+// Sampling by position, not direction, keeps it seamless on the torus and the star torus.
+float planetHeight( vec3 pos, vec3 n, out vec3 warp, out float terrain, out float seam, out float cellHash ) {
 	float t = uPlanetTime;
-	vec3 p = dir * uNoiseScale + uSeed;
+	vec3 p = pos * uNoiseScale + uSeed;
 	// Domain warp; flow speed animates it, so the surface swirls like a liquid.
 	vec3 pw = p * 0.7;
 	vec3 fl = vec3( 0.0, 0.0, t * uFlowSpeed );
@@ -137,9 +159,9 @@ float planetHeight( vec3 dir, out vec3 warp, out float terrain, out float seam, 
 
 	// Gas-giant bands: latitude stripes, differential rotation (equator faster than poles).
 	if ( uBands > 0.0 ) {
-		float lat = dir.y;
-		vec3 bandDir = planetRotY( dir, t * uBandSpeed * ( 0.4 + 0.6 * ( 1.0 - lat * lat ) ) );
-		float turb = planetFbm( bandDir * uNoiseScale * 1.5 + uSeed + warp * uWarp, 4.0 );
+		float lat = clamp( pos.y, - 1.0, 1.0 );
+		vec3 bandPos = planetRotY( pos, t * uBandSpeed * ( 0.4 + 0.6 * ( 1.0 - lat * lat ) ) );
+		float turb = planetFbm( bandPos * uNoiseScale * 1.5 + uSeed + warp * uWarp, 4.0 );
 		float stripes = 0.5 + 0.5 * sin( ( lat * uBandFrequency + turb * uBandTurbulence ) * PI );
 		h = mix( h, stripes, uBands );
 	}
@@ -147,14 +169,31 @@ float planetHeight( vec3 dir, out vec3 warp, out float terrain, out float seam, 
 	// Marble: folds the height into stripes, like stirred paint or milk.
 	h = mix( h, 0.5 + 0.5 * sin( h * uMarbleFrequency * PI ), uMarble );
 
+	// Craters: a bowl with a raised rim per occupied cell of a 3D grid (UE: Voronoi / baked crater height).
+	if ( uCraters > 0.0 ) {
+		vec3 cq = pos * uCraterScale + uSeed * 0.71;
+		vec3 ci = floor( cq );
+		float crater = 0.0;
+		for ( int x = - 1; x <= 1; x ++ ) for ( int y = - 1; y <= 1; y ++ ) for ( int z = - 1; z <= 1; z ++ ) {
+			vec3 cell = ci + vec3( x, y, z );
+			vec3 rnd = planetHash3( cell );
+			if ( rnd.x > uCraterDensity ) continue;
+			float d = length( cq - cell - planetHash3( cell + 17.0 ) ) / mix( 0.25, 0.55, rnd.y );
+			float bowl = d < 1.0 ? d * d - 1.0 : 0.0;
+			float rim = exp( - pow( ( d - 1.0 ) * 4.0, 2.0 ) );
+			crater += bowl * 0.6 + rim * 0.3;
+		}
+		h += uCraters * crater * 0.3;
+	}
+
 	// Machine panels: a 3D lattice cut by the surface. Each cell is a raised plate, the seams are grooves.
 	seam = 1.0;
 	cellHash = 0.0;
 	if ( uPanels > 0.0 ) {
-		vec3 q = dir * uPanelScale + uSeed * 0.37;
+		vec3 q = pos * uPanelScale + uSeed * 0.37;
 		vec3 f = fract( q );
 		// Surface distance to each lattice plane: divide by how fast that axis changes along the surface.
-		vec3 rate = sqrt( max( 1.0 - dir * dir, 1e-3 ) ) * uPanelScale;
+		vec3 rate = sqrt( max( 1.0 - n * n, 1e-3 ) ) * uPanelScale;
 		vec3 d = min( f, 1.0 - f ) / rate;
 		seam = min( d.x, min( d.y, d.z ) );
 		cellHash = fract( sin( dot( floor( q ), vec3( 12.9898, 78.233, 37.719 ) ) ) * 43758.5453 );
@@ -177,6 +216,15 @@ float planetReliefHeight( float h ) {
 	if ( uGlowIntensity > 0.0 ) floorH = max( floorH, uGlowLevel );
 	return max( h, floorH );
 }
+
+// Cloud coverage at a point; clouds drift around the spin axis relative to the ground.
+float planetClouds( vec3 pos ) {
+	float t = uPlanetTime;
+	vec3 cp = planetRotY( pos, t * uCloudSpeed ) * uCloudScale + uSeed + 31.7;
+	float cw = planetNoise( cp * 0.5 + vec3( t * 0.05 ) );
+	float c = saturate( planetFbm( cp + cw * 0.5, 5.0 ) * 0.8 + 0.5 );
+	return smoothstep( 1.0 - uCloudCover, 1.0 - uCloudCover + uCloudSoftness + 1e-3, c );
+}
 `;
 
 // After <color_fragment>, before the stylized albedo gradient. Writes Base Color and the values later blocks use.
@@ -186,26 +234,39 @@ float planetRelief = 0.0; // relief strength mask: 0 under clouds
 float planetRough = 1.0;
 float planetMetal = 0.0; // panel metallic mask
 float planetCity = 0.0;
+float planetFilm = 0.5; // thin-film thickness 0..1, follows the height
 vec3 planetGlow = vec3( 0.0 );
 if ( uPlanet > 0.5 ) {
-	vec3 dir = normalize( vPlanetObj );
+	vec3 pos = vPlanetObj * uPlanetInvRadius;
+	vec3 n = normalize( vPlanetObjN );
 	float t = uPlanetTime;
-	float lat = dir.y;
-	vec3 p = dir * uNoiseScale + uSeed;
+	vec3 p = pos * uNoiseScale + uSeed;
+
+	// Hologram scan: everything above the front is cut away (UE: Masked, OpacityMask from object height).
+	float scanBand = 0.0;
+	if ( uScanProgress < 1.0 ) {
+		float yN = ( vPlanetObj.y - uScanRange.x ) / max( uScanRange.y - uScanRange.x, 1e-4 );
+		float front = uScanProgress * 1.1 - 0.05 + planetNoise( pos * 6.0 + t ) * 0.015;
+		if ( yN > front ) discard;
+		scanBand = 1.0 - smoothstep( 0.0, uScanWidth, front - yN );
+	}
+
 	vec3 warp;
 	float terrain, seam, cellHash;
-	float h = planetHeight( dir, warp, terrain, seam, cellHash );
+	float h = planetHeight( pos, n, warp, terrain, seam, cellHash );
+	planetFilm = saturate( h );
 
-	// Height gradient by forward differences on the sphere (2 extra height samples).
+	// Height gradient by forward differences in the tangent plane (2 extra height samples).
 	// UE: the same height, baked to a texture, gives the normal map (NormalFromHeightmap).
 	if ( uBump > 0.0 ) {
-		vec3 tx = normalize( cross( abs( dir.y ) < 0.99 ? vec3( 0.0, 1.0, 0.0 ) : vec3( 1.0, 0.0, 0.0 ), dir ) );
-		vec3 ty = cross( dir, tx );
+		vec3 tx = normalize( cross( abs( n.y ) < 0.99 ? vec3( 0.0, 1.0, 0.0 ) : vec3( 1.0, 0.0, 0.0 ), n ) );
+		vec3 ty = cross( n, tx );
 		const float e = 0.002;
-		vec3 w; float a, b, c;
+		vec3 w;
+		float a, b, c;
 		float h0 = planetReliefHeight( h );
-		float hx = planetReliefHeight( planetHeight( normalize( dir + tx * e ), w, a, b, c ) );
-		float hy = planetReliefHeight( planetHeight( normalize( dir + ty * e ), w, a, b, c ) );
+		float hx = planetReliefHeight( planetHeight( pos + tx * e, n, w, a, b, c ) );
+		float hy = planetReliefHeight( planetHeight( pos + ty * e, n, w, a, b, c ) );
 		planetGrad = ( tx * ( hx - h0 ) + ty * ( hy - h0 ) ) / e;
 		planetRelief = 1.0;
 	}
@@ -229,7 +290,7 @@ if ( uPlanet > 0.5 ) {
 	}
 
 	// Polar ice caps with a noisy edge.
-	float ice = uPolarCap > 0.0 ? smoothstep( 1.0 - uPolarCap, 1.04 - uPolarCap, abs( lat ) + ( terrain - 0.5 ) * 0.3 ) : 0.0;
+	float ice = uPolarCap > 0.0 ? smoothstep( 1.0 - uPolarCap, 1.04 - uPolarCap, abs( clamp( pos.y, - 1.0, 1.0 ) ) + ( terrain - 0.5 ) * 0.3 ) : 0.0;
 	col = mix( col, uIceColor, ice );
 	planetRough = mix( planetRough, 0.35, ice );
 	planetRelief *= 1.0 - 0.7 * ice;
@@ -256,7 +317,7 @@ if ( uPlanet > 0.5 ) {
 			contour = 1.0 - smoothstep( fw * 0.6, fw * 1.6, dl ); // about 1.5 px core
 			contour += 0.3 * ( 1.0 - smoothstep( 0.0, fw * 6.0, dl ) ); // soft halo
 		}
-		float wave = 0.5 + 0.5 * sin( dot( dir, vec3( 9.0, 7.0, 5.0 ) ) - t * uNeonSpeed );
+		float wave = 0.5 + 0.5 * sin( dot( pos, vec3( 9.0, 7.0, 5.0 ) ) - t * uNeonSpeed );
 		float sweep = pow( wave, 6.0 ); // seams light up only in narrow bands sweeping over the surface
 		vec3 neonCol = mix( uNeonColor, uNeonColorB, smoothstep( 0.2, 0.8, h ) );
 		float neon = seamLine * sweep + contour * ( 0.55 + 0.45 * wave );
@@ -270,18 +331,28 @@ if ( uPlanet > 0.5 ) {
 		planetCity = region * speck * land * ( 1.0 - ice );
 	}
 
-	// Clouds drift around the spin axis relative to the ground.
 	if ( uCloudCover > 0.0 ) {
-		vec3 cp = planetRotY( dir, t * uCloudSpeed ) * uCloudScale + uSeed + 31.7;
-		float cw = planetNoise( cp * 0.5 + vec3( t * 0.05 ) );
-		float c = saturate( planetFbm( cp + cw * 0.5, 5.0 ) * 0.8 + 0.5 );
-		float cloud = smoothstep( 1.0 - uCloudCover, 1.0 - uCloudCover + uCloudSoftness + 1e-3, c );
+		float cloud = planetClouds( pos );
+		// Cloud shadow: the cloud between this point and the sun (UE: second cloud sample offset by the MPC sun direction).
+		if ( uCloudShadow > 0.0 ) {
+			vec3 sunObj = normalize( transpose( uPlanetObjToView ) * uSunDirView );
+			float shade = planetClouds( pos + sunObj * 0.06 ) * smoothstep( - 0.1, 0.2, dot( n, sunObj ) );
+			col *= 1.0 - uCloudShadow * 0.75 * shade * ( 1.0 - cloud );
+		}
 		col = mix( col, uCloudColor, cloud );
 		planetRough = mix( planetRough, 1.0, cloud );
 		planetRelief *= 1.0 - cloud;
 		planetMetal *= 1.0 - cloud;
 		planetCity *= 1.0 - cloud;
 		planetGlow *= 1.0 - 0.8 * cloud;
+	}
+
+	// Scan front: hologram tint, a bright edge and a grid inside the band.
+	if ( scanBand > 0.0 ) {
+		vec3 g = abs( fract( pos * 12.0 ) - 0.5 );
+		float grid = 1.0 - smoothstep( 0.0, 0.05, min( g.x, min( g.y, g.z ) ) );
+		col = mix( col, uScanColor * 0.15, scanBand );
+		planetGlow += uScanColor * ( scanBand * ( 1.0 + 3.0 * grid ) + 4.0 * pow( scanBand, 8.0 ) );
 	}
 	diffuseColor.rgb = col;
 }
@@ -306,41 +377,221 @@ if ( uPlanet > 0.5 && uBump > 0.0 ) {
 `;
 
 // After <emissivemap_fragment>. City lights use the sun direction from the stylized layer (UE: MPC).
+// Bubble: Fresnel opacity (UE: Translucent, Opacity = Fresnel).
 export const PLANET_EMISSIVE = /* glsl */ `
 if ( uPlanet > 0.5 ) {
 	float night = smoothstep( 0.15, - 0.25, dot( normal, uSunDirView ) );
 	totalEmissiveRadiance += planetGlow + uCityColor * ( uCityIntensity * planetCity * night );
+	if ( uBubble > 0.0 ) {
+		float fres = pow( 1.0 - saturate( dot( normal, normalize( vViewPosition ) ) ), 3.0 );
+		diffuseColor.a = mix( 1.0, 0.04 + 0.96 * fres, uBubble );
+		// Film sheen: space has almost no sky to reflect, so the interference colours are added as emissive.
+		// Cheap rainbow from the film thickness and the view angle, not a physical thin-film evaluation.
+		float filmPhase = planetFilm * 2.5 + fres * 1.5 + uPlanetTime * 0.05;
+		vec3 rainbow = 0.5 + 0.5 * cos( PI2 * ( filmPhase + vec3( 0.0, 0.33, 0.67 ) ) );
+		totalEmissiveRadiance += rainbow * ( uBubble * ( 0.35 + 0.65 * fres ) * 0.8 );
+	}
 }
 `;
 
-// --- Atmosphere shell: back faces of a larger copy of the planet, additive. UE: Translucent, Additive, Unlit. ---
+// After <lights_physical_fragment>: thin-film thickness follows the surface pattern, so the colours swirl with it.
+// UE: Substrate Slab thin film thickness from the same height.
+export const PLANET_FILM = /* glsl */ `
+#ifdef USE_IRIDESCENCE
+if ( uPlanet > 0.5 ) material.iridescenceThickness = mix( iridescenceThicknessMinimum, iridescenceThicknessMaximum, planetFilm );
+#endif
+`;
+
+// After <opaque_fragment>: a bubble keeps its specular highlights opaque, like a real soap film.
+export const PLANET_ALPHA = /* glsl */ `
+if ( uPlanet > 0.5 && uBubble > 0.0 ) {
+	vec3 bubbleLit = reflectedLight.directSpecular + reflectedLight.indirectSpecular + totalEmissiveRadiance;
+	gl_FragColor.a = max( gl_FragColor.a, saturate( max( bubbleLit.r, max( bubbleLit.g, bubbleLit.b ) ) ) );
+}
+`;
+
+// --- Shape SDFs: the same surfaces as src/geometry/planetShapes.ts, for raymarching the atmosphere. ---
+const k = (x: number) => x.toFixed(6);
+const R = PLANET_VIEW.radius;
+const SHAPE_SDF = /* glsl */ `
+uniform vec3 uDodecaN[ 12 ];
+uniform vec3 uIcosaN[ 20 ];
+uniform float uPolyInradius;
+uniform float uRoundness;
+uniform int uShapeA;
+uniform int uShapeB;
+uniform float uMorph; // 0 = shape A, 1 = shape B
+const float SDF_R = ${k(R)};
+const float SDF_EY = ${k(PLANET_VIEW.ellipsoidY)};
+const float SDF_TORUS_MAJOR = ${k(PLANET_VIEW.torusMajor * R)};
+const float SDF_TORUS_TUBE = ${k(PLANET_VIEW.torusTube * R)};
+const float SDF_STAR_OUTER = ${k(PLANET_VIEW.starOuter * R)};
+const float SDF_STAR_INNER = ${k(PLANET_VIEW.starOuter * PLANET_VIEW.starInner * R)};
+const float SDF_STAR_TUBE = ${k(PLANET_VIEW.starTube * R)};
+
+float sdfStarRadius( float u ) {
+	const float seg = PI / 5.0;
+	float i = floor( u / seg );
+	bool tipFirst = mod( i, 2.0 ) < 0.5;
+	float a0 = i * seg;
+	float r0 = tipFirst ? SDF_STAR_OUTER : SDF_STAR_INNER;
+	float r1 = tipFirst ? SDF_STAR_INNER : SDF_STAR_OUTER;
+	vec2 p0 = r0 * vec2( cos( a0 ), sin( a0 ) );
+	vec2 dd = r1 * vec2( cos( a0 + seg ), sin( a0 + seg ) ) - p0;
+	float sharp = ( p0.x * dd.y - p0.y * dd.x ) / ( cos( u ) * dd.y - sin( u ) * dd.x );
+	float rounded = SDF_STAR_INNER + ( SDF_STAR_OUTER - SDF_STAR_INNER ) * ( 0.5 + 0.5 * cos( 5.0 * u ) );
+	return mix( sharp, rounded, uRoundness );
+}
+
+float sdfShape( int id, vec3 p ) {
+	if ( id == 1 ) return ( length( p / vec3( 1.0, SDF_EY, 1.0 ) ) - SDF_R ) * SDF_EY; // ellipsoid, approximate
+	if ( id == 2 ) {
+		float d = - 1e9;
+		for ( int i = 0; i < 12; i ++ ) d = max( d, dot( p, uDodecaN[ i ] ) );
+		return d - uPolyInradius;
+	}
+	if ( id == 3 ) {
+		float d = - 1e9;
+		for ( int i = 0; i < 20; i ++ ) d = max( d, dot( p, uIcosaN[ i ] ) );
+		return d - uPolyInradius;
+	}
+	if ( id == 4 ) return length( vec2( length( p.xz ) - SDF_TORUS_MAJOR, p.y ) ) - SDF_TORUS_TUBE;
+	if ( id == 5 ) {
+		float u = atan( p.z, p.x );
+		if ( u < 0.0 ) u += PI2;
+		return length( vec2( length( p.xz ) - sdfStarRadius( u ), p.y ) ) - SDF_STAR_TUBE; // approximate near the tips
+	}
+	return length( p ) - SDF_R;
+}
+
+float sdfPlanet( vec3 p ) {
+	float a = sdfShape( uShapeA, p );
+	return uMorph > 0.0 ? mix( a, sdfShape( uShapeB, p ), uMorph ) : a;
+}
+`;
+
+// --- Atmosphere: raymarched through the planet SDF, so it hugs any shape, also polyhedra and the star.
+// Brightness follows the optical depth: thin haze face-on, bright limb. UE: Translucent Additive Unlit material
+// with a Custom node for the march; shape id / morph / sun from an MPC. ---
 export const ATMOSPHERE_VERTEX = /* glsl */ `
-varying vec3 vNormalView;
-varying vec3 vNormalWorld;
-varying vec3 vViewDir;
+uniform float uBound;
+varying vec3 vObjPos;
 void main() {
-	vec4 mv = modelViewMatrix * vec4( position, 1.0 );
-	vNormalView = normalize( normalMatrix * normal );
-	vNormalWorld = normalize( mat3( modelMatrix ) * normal );
-	vViewDir = normalize( - mv.xyz );
-	gl_Position = projectionMatrix * mv;
+	vObjPos = position * uBound;
+	gl_Position = projectionMatrix * modelViewMatrix * vec4( vObjPos, 1.0 );
 }
 `;
 
 export const ATMOSPHERE_FRAGMENT = /* glsl */ `
 #include <common>
+${SHAPE_SDF}
+uniform vec3 uColor;
+uniform vec3 uSunsetColor;
+uniform float uSunset;
+uniform float uIntensity;
+uniform float uThickness; // object units
+uniform float uBound;
+uniform vec3 uCamObj; // camera and sun in the planet's object space
+uniform vec3 uSunObj;
+uniform float uFade;
+varying vec3 vObjPos;
+void main() {
+	vec3 ro = uCamObj;
+	vec3 rd = normalize( vObjPos - ro );
+	float b = dot( ro, rd );
+	float disc = b * b - dot( ro, ro ) + uBound * uBound;
+	if ( disc <= 0.0 ) discard;
+	float s = sqrt( disc );
+	float H = uThickness * 0.35; // scale height
+	float tEnd = - b + s;
+	// Per-pixel jitter of the start turns the remaining step banding into fine noise.
+	float t = max( - b - s, 0.0 ) + fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) ) * H * 0.3;
+	float depth = 0.0;
+	vec3 tint = vec3( 0.0 );
+	// Adaptive steps: half the distance to the surface, never below 0.3 scale heights. Fixed steps band badly.
+	for ( int i = 0; i < 96; i ++ ) {
+		if ( t >= tEnd ) break;
+		vec3 p = ro + rd * t;
+		float d = sdfPlanet( p );
+		if ( d < 0.0 ) break;
+		float dt = min( max( d * 0.5, H * 0.3 ), tEnd - t );
+		t += dt;
+		float dens = exp( - d / H ) * dt / H;
+		float mu = dot( normalize( p ), uSunObj );
+		float day = smoothstep( - 0.25, 0.15, mu );
+		// Scattering colour: blue by day, sunset colour along the terminator (Rayleigh-like look, not physical).
+		float twilight = exp( - pow( ( mu - 0.05 ) / 0.2, 2.0 ) );
+		tint += mix( uColor, uSunsetColor, saturate( uSunset * twilight ) ) * ( dens * day );
+		depth += dens;
+	}
+	// Forward scattering: looking towards the sun through the rim gives a back-lit halo.
+	tint += uSunsetColor * ( depth * pow( saturate( dot( rd, uSunObj ) ), 6.0 ) * uSunset * 0.5 );
+	vec3 col = tint / max( depth, 1e-4 ) * ( 1.0 - exp( - depth * 0.06 ) ) * ( uIntensity * uFade );
+	gl_FragColor = vec4( col, 1.0 );
+	#include <tonemapping_fragment>
+	#include <colorspace_fragment>
+}
+`;
+
+// --- Hexagon energy shield: additive sphere, hex grid on its lat-long UV, Fresnel edge, impact rings.
+// UE: Translucent Additive Unlit on a sphere mesh; the same maths on its UVs. ---
+export const SHIELD_VERTEX = /* glsl */ `
+uniform float uRadius;
+varying vec3 vDir;
+varying vec3 vNormalView;
+varying vec3 vViewPos;
+void main() {
+	vDir = normalize( position );
+	vec4 mv = modelViewMatrix * vec4( position * uRadius, 1.0 );
+	vNormalView = normalize( normalMatrix * normal );
+	vViewPos = mv.xyz;
+	gl_Position = projectionMatrix * mv;
+}
+`;
+
+export const SHIELD_FRAGMENT = /* glsl */ `
+#include <common>
 uniform vec3 uColor;
 uniform float uIntensity;
-uniform float uLimb; // view-facing value at the planet limb, from the shell scale
-uniform vec3 uSunDir; // world space
+uniform float uHexCount;
+uniform float uTime;
+uniform float uHitRate;
+uniform float uFade;
+varying vec3 vDir;
 varying vec3 vNormalView;
-varying vec3 vNormalWorld;
-varying vec3 vViewDir;
+varying vec3 vViewPos;
+vec4 shieldHex( vec2 uv ) { // xy: offset from the cell centre, zw: cell centre
+	const vec2 r = vec2( 1.0, 1.7320508 );
+	vec2 h = r * 0.5;
+	vec2 a = mod( uv, r ) - h;
+	vec2 b = mod( uv - h, r ) - h;
+	vec2 g = dot( a, a ) < dot( b, b ) ? a : b;
+	return vec4( g, uv - g );
+}
 void main() {
-	// Back face: 0 at the outer edge of the shell, rising towards the planet limb.
-	float f = saturate( - dot( normalize( vNormalView ), normalize( vViewDir ) ) / uLimb );
-	float day = smoothstep( - 0.35, 0.4, dot( normalize( vNormalWorld ), uSunDir ) );
-	gl_FragColor = vec4( uColor * ( uIntensity * f * f * f * day ), 1.0 );
+	vec3 d = normalize( vDir );
+	vec2 uv = vec2( ( atan( d.z, d.x ) / PI2 + 0.5 ) * uHexCount, ( asin( clamp( d.y, - 1.0, 1.0 ) ) / PI + 0.5 ) * uHexCount * 0.5 );
+	vec4 hex = shieldHex( uv );
+	vec2 g = abs( hex.xy );
+	float edge = 0.5 - max( dot( g, normalize( vec2( 1.0, 1.7320508 ) ) ), g.x );
+	float line = 1.0 - smoothstep( 0.0, 0.05, edge );
+	float polar = 1.0 - smoothstep( 0.8, 0.97, abs( d.y ) ); // lat-long hexes squeeze at the poles, so fade them
+	vec3 N = normalize( vNormalView ) * ( gl_FrontFacing ? 1.0 : - 1.0 );
+	float fres = pow( 1.0 - abs( dot( N, normalize( - vViewPos ) ) ), 2.5 );
+
+	// Impact: a ring of lit cells grows from a random point, one impact per 1 / hit rate seconds.
+	float lon = ( hex.z / uHexCount - 0.5 ) * PI2;
+	float lat = ( hex.w / ( uHexCount * 0.5 ) - 0.5 ) * PI;
+	vec3 cellDir = vec3( cos( lat ) * cos( lon ), sin( lat ), cos( lat ) * sin( lon ) );
+	float hitT = uTime * uHitRate;
+	float local = fract( hitT );
+	vec3 hitDir = normalize( fract( sin( vec3( 1.0, 2.0, 3.0 ) + floor( hitT ) * vec3( 12.9898, 78.233, 37.719 ) ) * 43758.5453 ) * 2.0 - 1.0 );
+	float ang = acos( clamp( dot( cellDir, hitDir ), - 1.0, 1.0 ) );
+	float flash = uHitRate > 0.0 ? ( 1.0 - smoothstep( 0.0, 0.15, abs( ang - local * 1.4 ) ) ) * ( 1.0 - local ) : 0.0;
+	float shimmer = 0.5 + 0.5 * sin( uTime * 1.5 + fract( sin( dot( hex.zw, vec2( 12.9898, 78.233 ) ) ) * 43758.5453 ) * PI2 );
+
+	float glow = fres * 0.5 + line * polar * ( 0.12 + 0.6 * fres ) * ( 0.6 + 0.4 * shimmer ) + flash * ( 0.4 + 1.2 * line );
+	gl_FragColor = vec4( uColor * ( uIntensity * glow * uFade ), 1.0 );
 	#include <tonemapping_fragment>
 	#include <colorspace_fragment>
 }
@@ -372,6 +623,7 @@ uniform vec3 uSunDir; // world space
 uniform vec3 uSunRadiance; // sun colour * intensity
 uniform vec3 uPlanetCenter;
 uniform float uPlanetRadius;
+uniform float uFade;
 varying vec3 vWorldPos;
 varying vec3 vNormalWorld;
 varying float vRadius;
@@ -390,7 +642,7 @@ void main() {
 	float shadow = along > 0.0 ? smoothstep( uPlanetRadius * 0.95, uPlanetRadius * 1.02, dist ) : 1.0;
 	float nl = 0.35 + 0.65 * abs( dot( normalize( vNormalWorld ), uSunDir ) ); // thin ring: lit from both sides
 	vec3 radiance = albedo * RECIPROCAL_PI * uSunRadiance * nl * mix( 0.05, 1.0, shadow ) + albedo * 0.03;
-	gl_FragColor = vec4( radiance, alpha );
+	gl_FragColor = vec4( radiance, alpha * uFade );
 	#include <tonemapping_fragment>
 	#include <colorspace_fragment>
 }
@@ -416,6 +668,7 @@ uniform float uPulses;
 uniform float uPulseLength; // fraction of the gap between pulses
 uniform float uPhase;
 uniform float uBase; // brightness of the line between pulses
+uniform float uFade;
 varying vec2 vRingXZ;
 void main() {
 	float u = atan( vRingXZ.y, vRingXZ.x ) / PI2; // computed per pixel: no seam at +-PI
@@ -423,7 +676,7 @@ void main() {
 	if ( uSpeed < 0.0 ) x = 1.0 - x; // keep the bright head in front
 	float pulse = smoothstep( 1.0 - uPulseLength, 1.0, x );
 	pulse *= pulse;
-	gl_FragColor = vec4( uColor * ( uIntensity * ( uBase + 3.0 * pulse ) ), 1.0 );
+	gl_FragColor = vec4( uColor * ( uIntensity * ( uBase + 3.0 * pulse ) * uFade ), 1.0 );
 	#include <tonemapping_fragment>
 	#include <colorspace_fragment>
 }

@@ -2,7 +2,6 @@
 export const TOOLTIPS: Record<string, string> = {
   // Object / presets
   shape: '測試用的基本幾何體。',
-  preset: '載入一組預設材質參數（會覆蓋目前的 Material 及 NPR 設定，燈光不變）。',
 
   // Default Lit
   mode: 'standard：純 UE5 Default Lit。\nstylized：在 PBR 之上加入材質層的 NPR 效果（Normal Soften、Shade、Terminator、Rim 等）。',
@@ -50,8 +49,9 @@ export const TOOLTIPS: Record<string, string> = {
   appMode: 'material：單一物件的材質測試（原有功能）。\nplanet：程序化星球表面。兩個模式各自保存 Material、NPR 及 Lighting 參數（planet 模式預設的 Sky Intensity 較低），切換時不會互相覆蓋。',
 
   // Planet: shape and motion
-  planetShape: '星球的形狀。表面圖案以 3D noise 按物件方向取樣，所以任何形狀都沒有接縫。',
-  planetPreset: '載入一組星球預設（會覆蓋 Planet、Material 及 NPR 參數，燈光不變）。',
+  planetShape: '星球的形狀。所有形狀都是同一個 UV 網格的 morph target，所以切換時會平滑變形（UE: 把每個形狀 bake 進 mesh，用 World Position Offset lerp）。torus = 甜甜圈，starTorus = 沿五角星路徑的環。',
+  planetPreset: '載入星球預設（會覆蓋 Planet、Material 及 NPR 參數；只有自訂預設會一併載入燈光）。★ = 儲存在此瀏覽器的自訂預設。',
+  preset: '載入材質預設（會覆蓋 Material 及 NPR 參數）。★ = 儲存在此瀏覽器的自訂預設。',
   tiltDeg: '自轉軸的傾斜角度（度）。光環跟隨傾斜。',
   spinDegPerSec: '自轉速度（度／秒）（UE: Rotating Movement）。',
   timeScale: '所有動畫的時間倍數：自轉、雲層、氣體帶流動、岩漿脈動。0 = 暫停。',
@@ -117,7 +117,7 @@ export const TOOLTIPS: Record<string, string> = {
   cityDensity: '城市的分佈密度。',
 
   // Planet: atmosphere
-  atmoColor: '大氣層外殼的顏色。外殼是一個稍大、加法混合的半透明網格（UE: Translucent Additive Unlit）。',
+  atmoColor: '大氣層白天的顏色。大氣層沿視線 raymarch 星球的 SDF，所以會貼合任何形狀，包括正多面體及星形（UE: Translucent Additive Unlit + Custom node）。',
   atmoIntensity: '大氣層的亮度。受光面較亮。0 = 關閉。',
   atmoThickness: '大氣層外殼的厚度（以星球半徑計算）。',
 
@@ -129,7 +129,6 @@ export const TOOLTIPS: Record<string, string> = {
   ringColorB: '光環的外側顏色。',
 
   // Planet: orbit lines
-  copyPlanetName: '把目前選擇的星球預設名稱複製到剪貼簿。',
   orbitCount: '軌道線的數量（0–3）。每條軌道的傾角及方向不同。',
   orbitRadius: '第一條軌道的半徑（以星球半徑計算）。',
   orbitSpacing: '軌道之間的距離（以星球半徑計算）。',
@@ -140,6 +139,40 @@ export const TOOLTIPS: Record<string, string> = {
   orbitSpeedDegPerSec: '光脈衝沿軌道移動的速度（度／秒）。相鄰軌道方向相反，外圈較慢（UE: Panner）。',
   orbitPulses: '每條軌道上光脈衝的數量。',
   orbitPulseLength: '光脈衝尾巴的長度（以脈衝之間的距離計算）。',
+
+  // Presets and view
+  presetTools: 'Save：把目前全部設定（包括燈光）存為自訂預設，存放在此瀏覽器（localStorage）。\nDelete：刪除選中的自訂預設。\nImport / Export：以 JSON 檔匯入或匯出自訂預設。舊版檔案可以載入：缺少的參數使用預設值，不認識的參數會被忽略。',
+  presetView: 'Gallery：以縮圖預覽所有預設，點選即進入編輯。\nCopy name：複製目前預設的名稱。',
+
+  // Planet: morph and scan
+  starRoundness: '星形環的角：0 = 尖角，1 = 圓角。',
+  morphSeconds: '切換形狀時的變形時間（秒）。0 = 即時切換。',
+  morphCycleSeconds: '大於 0 時，每隔這個秒數自動變形到下一個形狀，用作預覽。0 = 關閉。',
+  scanPlay: '播放全息掃描：星球由下至上生成，大氣層、光環、軌道及護盾同時淡入。從 Gallery 選取預設時會自動播放。',
+  scanProgress: '掃描進度：0 = 完全隱藏，1 = 完成。高於掃描線的部分會被切走（UE: Masked 材質，OpacityMask 由物件高度計算）。',
+  scanColor: '掃描線及全息網格的顏色。',
+  scanWidth: '掃描線下方發光帶的闊度（以物件高度計算）。',
+  scanSeconds: '掃描動畫的時間（秒）。',
+
+  // Planet: craters and bubble
+  craters: '隕石坑的強度：碗形凹陷加上凸起的坑邊。0 = 關閉。',
+  craterScale: '隕石坑網格的密度（每個半徑的格數）。數值越高，坑越小越多。',
+  craterDensity: '有隕石坑的格子比例。',
+  bubble: '泡泡效果：中央透明、邊緣不透明（Fresnel），高光保持可見。顏色來自 Material 分頁的 Thin Film；薄膜厚度跟隨表面圖案流動（UE: Translucent，Opacity = Fresnel，Substrate thin film）。',
+  cloudShadow: '雲層投影：在太陽方向偏移再取樣一次雲層，令下方地面變暗（UE: 第二次雲層取樣，MPC 太陽方向）。',
+
+  // Planet: atmosphere scattering and shield
+  atmoSunsetColor: '散射顏色：出現在明暗分界附近，以及背光時大氣層邊緣的光暈。',
+  atmoSunset: '散射顏色的強度。0 = 只有白天顏色。',
+  shieldIntensity: '六角形能量護盾的亮度。0 = 關閉（UE: Translucent Additive 球體）。',
+  shieldColor: '護盾顏色。',
+  shieldRadius: '護盾半徑（以星球最大半徑計算）。',
+  shieldHexCount: '赤道一圈的六角形數量（整數，令網格無接縫）。',
+  shieldHitRate: '每秒受擊次數：受擊點會擴散出一圈發光的六角形。0 = 關閉。',
+
+  // NPR: outline
+  outlineWidth: 'Inverted hull 描邊的闊度（螢幕像素）。0 = 關閉。描邊跟隨形狀變形（UE: 第二個 mesh 或材質槽，WPO 沿法線推出，反轉 culling）。',
+  outlineColor: '描邊顏色。',
 
   // Lighting
   sunColor: '太陽光（Directional Light）的顏色。',
