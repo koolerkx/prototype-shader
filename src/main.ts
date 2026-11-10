@@ -924,7 +924,7 @@ const gallery = createGallery<SavedState>(document.getElementById('app')!, rende
   },
 });
 
-const GALLERY_ORDER = ['Stylized PBR v2.1', 'Planets', 'Toy Squadron v4.0', 'Cat-Ear v1.0', 'Pure Toon v1.0', 'Stylized PBR v2.0', 'New Ideas v3.0', 'Material'];
+const GALLERY_ORDER = ['Planets', 'Toy Squadron v4.0', 'Cat-Ear v1.0', 'Pure Toon v1.0', 'Stylized PBR v2.0', 'Stylized PBR v2.1', 'New Ideas v3.0', 'Material'];
 
 /** Fills the gallery: planet presets under their group heading, user presets, then material presets. */
 function showGallery() {
