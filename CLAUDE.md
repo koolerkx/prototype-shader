@@ -8,3 +8,9 @@
 Make suitable commit and suitable timing with suitable size of content
 
 Free to make commit
+
+use zh-hk in chat
+
+make use of web search for more additional info
+
+Claude Custom Visuals is encouraged for explanations for complex or big concept
