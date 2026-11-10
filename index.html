@@ -7,7 +7,7 @@
       html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1d21; color: #d6d9de;
         font: 12px/1.4 ui-sans-serif, system-ui, sans-serif; }
       [hidden] { display: none !important; }
-      #app { display: flex; height: 100%; }
+      #app { display: flex; height: 100%; position: relative; }
       #viewport { flex: 1; position: relative; min-width: 0; }
       #viewport canvas { display: block; }
       #panel { width: 360px; overflow-y: auto; background: #24272c; border-left: 1px solid #33363c; box-sizing: border-box; }
@@ -36,18 +36,28 @@
       .row button:hover { background: #3a3f47; }
       .row .btns { grid-column: 2 / 4; display: flex; gap: 4px; }
       .row .btns button { flex: 1; min-width: 0; }
-      #gallery { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; background: rgba(11, 13, 26, .96); }
-      .gallery-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid #33363c; }
-      .gallery-head button { background: #2f333a; color: inherit; border: 1px solid #3a3e45; border-radius: 3px; padding: 4px 10px; font: inherit; cursor: pointer; }
-      .gallery-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 16px; }
+      #gallery { width: 204px; display: flex; flex-direction: column; background: #1b1d21; border-right: 1px solid #33363c; box-sizing: border-box; }
+      #gallery.full { position: absolute; left: 0; top: 0; bottom: 0; right: 360px; width: auto; z-index: 2; background: rgba(11, 13, 26, .96); }
+      .gallery-head { display: flex; gap: 12px; align-items: center; padding: 8px 10px; border-bottom: 1px solid #33363c; }
+      .gallery-head button { margin-left: auto; background: #2f333a; color: inherit; border: 1px solid #3a3e45; border-radius: 3px; padding: 4px 10px; font: inherit; cursor: pointer; }
+      .gallery-legend { color: #8a9099; font-size: 11px; }
+      #gallery:not(.full) .gallery-legend { display: none; }
+      .gallery-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 10px 16px; }
       .gallery-body h4 { margin: 14px 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #8a9099; }
       .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 10px; }
-      .gallery-card { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px; background: #1b1d21;
+      .gallery-card { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px; background: #1b1d21;
         border: 1px solid #33363c; border-radius: 6px; color: inherit; font: inherit; cursor: pointer; }
-      .gallery-card:hover { border-color: #5fa8ff; }
+      .gallery-card:hover, .gallery-card.active { border-color: #5fa8ff; }
+      .gallery-card.active { background: #232a36; }
       .gallery-thumb { width: 168px; height: 168px; display: grid; place-items: center; color: #5a5f68; }
-      .gallery-thumb:empty::after { content: '…'; }
+      .gallery-thumb:empty::after { content: '\2026'; }
       .gallery-thumb canvas { width: 168px; height: 168px; border-radius: 4px; }
+      .gallery-badge { font-size: 9px; font-weight: 600; letter-spacing: .04em; padding: 1px 5px; border-radius: 3px; color: #10131a; cursor: help; }
+      .gallery-card .gallery-badge { position: absolute; top: 10px; right: 10px; }
+      .gallery-badge.mi, .ue-mi { background: #6fd08a; }
+      .gallery-badge.sub, .ue-sub { background: #6fb2ff; }
+      .gallery-badge.extra, .ue-extra { background: #ffb347; }
+      .row button.ue-mi, .row button.ue-sub, .row button.ue-extra { color: #10131a; font-weight: 600; }
       .row input[type=color] { width: 100%; height: 22px; padding: 0; border: 1px solid #3a3e45; background: none; }
     </style>
   </head>

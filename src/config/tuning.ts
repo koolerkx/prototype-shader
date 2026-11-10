@@ -52,6 +52,11 @@ export const STYLIZED_DEFAULTS = {
   rimLightSide: 0, // -1 = back-lit side only, 0 = everywhere, 1 = sun-lit side only
   outlineWidth: 0, // inverted hull, screen pixels; 0 = off
   outlineColor: '#2a1f4a',
+  // Toon mix (UE: Emissive += Albedo * lerp(ShadeColor, 1, steppedNL) * SunColor * Toonness; BaseColor *= 1 - 0.9 * Toonness).
+  // It does not see cast shadows.
+  toonness: 0, // 0 = PBR diffuse, 1 = stepped diffuse with a 10% PBR residual
+  toonSteps: 2, // tone count on the N·L ramp
+  toonSoftness: 0.05, // N·L half-width of each step edge
 };
 
 // Each preset starts from the defaults above and overrides only the listed values. Lighting is not touched.
@@ -118,8 +123,23 @@ export const PRESET_NAMES = Object.keys(PRESETS) as PresetName[];
 export const APP_MODES = ['material', 'planet'] as const;
 export type AppMode = (typeof APP_MODES)[number];
 
+export const ATTACHMENTS = ['none', 'catEars', 'islands', 'vortex', 'whaleTrail'] as const;
+export type AttachName = (typeof ATTACHMENTS)[number];
+
+// Fixed looks of the attachment meshes; sizes in planet radii.
+export const ATTACH = {
+  islandCount: 6,
+  islandOrbit: 1.42,
+  islandSpeed: 0.25, // rad/s
+  islandGrass: '#7fdc5a',
+  islandDirt: '#8a5a44',
+  islandTree: '#ff80c8',
+  tagColor: '#edbd80',
+  zzzColor: '#bfe0ff',
+};
+
 // Order = morph target index; the atmosphere SDF uses the same ids.
-export const PLANET_SHAPES = ['sphere', 'ellipsoid', 'dodecahedron', 'icosahedron', 'torus', 'starTorus'] as const;
+export const PLANET_SHAPES = ['sphere', 'ellipsoid', 'dodecahedron', 'icosahedron', 'torus', 'starTorus', 'roundCube'] as const;
 export type PlanetShapeName = (typeof PLANET_SHAPES)[number];
 
 export const PLANET_VIEW = {
@@ -131,6 +151,9 @@ export const PLANET_VIEW = {
   starOuter: 0.85, // star centreline radius at the tips, in planet radii
   starInner: 0.5, // valley radius / tip radius
   starTube: 0.18,
+  roundCubeSize: 0.75, // face distance of the rounded cube, in planet radii
+  faceYawDeg: 40, // sway centre: turns the face (object +Z) towards the default camera
+  swaySpeed: 0.6, // rad/s of the sway sine
   gridU: 256, // morph grid: every planet shape is the same UV grid, so any shape can morph into any other
   gridV: 128,
   ringMin: 1.1, // ring mesh extent, in planet radii; the shader cuts the visible band inside it
@@ -148,6 +171,11 @@ export const PLANET_DEFAULTS = {
   starRoundness: 0.5, // star torus: 0 = sharp tips, 1 = round
   morphSeconds: 1.2, // shape change duration; 0 = instant
   morphCycleSeconds: 0, // > 0: morph through every shape on a timer
+  scaleX: 1, // object scale (UE: non-uniform actor scale); patterns stretch with it
+  scaleY: 1,
+  scaleZ: 1,
+  swayDeg: 0, // > 0: rocks left-right around the face direction instead of spinning
+  breath: 0, // squash-and-stretch pulse, 1 = 4% of the scale
   // Hologram scan transition (UE: Masked material, OpacityMask from object height)
   scanProgress: 1, // 0 = hidden, 1 = fully built
   scanColor: '#5fe8ff',
@@ -167,6 +195,8 @@ export const PLANET_DEFAULTS = {
   lowColor: '#5f8a4a',
   midColor: '#a89060',
   highColor: '#e8e2d8',
+  terrace: 0, // 1 = low / mid / high as three flat tones with stepped relief
+  surfaceEmissive: 0, // > 0: the surface colour is emitted and takes no light (UE: Unlit)
   oceanRoughness: 0.15,
   landRoughness: 0.8,
   polarCap: 0, // 0 = none, 1 = whole planet
@@ -176,6 +206,17 @@ export const PLANET_DEFAULTS = {
   bandFrequency: 6,
   bandTurbulence: 0.6,
   bandSpeedDegPerSec: 4, // equator speed; poles are slower
+  bandTwist: 0, // whole turns of swirl around the axis; keep it an integer (no seam)
+  // Voronoi cells (UE: Voronoi noise or a baked cell texture): cracks on the borders, dots, flat facets
+  cellScale: 3, // cells per radius
+  cellCracks: 0, // border grooves tinted with Cell Color
+  cellCrackWidth: 0.05,
+  cellDots: 0, // one domed dot per cell, Cell Color
+  cellDotSize: 0.3, // dot radius, in cells
+  cellFacets: 0, // flat tone and faux facet normal per cell (gem)
+  cellColor: '#ffffff',
+  cellGlow: 0, // emissive on the cell borders
+  cellGlowColor: '#ff5a1f',
   // Marble: folds the height into stripes (stirred paint / milk)
   marble: 0,
   marbleFrequency: 6,
@@ -213,6 +254,20 @@ export const PLANET_DEFAULTS = {
   neonSeams: 1,
   neonContours: 0, // contour lines over the full height range; 0 = off
   neonSpeed: 2,
+  neonGrid: 0, // emissive latitude / longitude lines in Neon Color (hologram globe)
+  // Aurora: two counter-rotating emissive curtains around both poles
+  auroraIntensity: 0,
+  auroraColor: '#40ff90',
+  auroraColorB: '#ff50c0',
+  // Parcel: tape cross (Mid Color), label (High Color) and a lamp (Neon Color) on the +Z face
+  parcel: 0,
+  // Face on the +Z side, drawn on the unit sphere so it follows the object scale
+  face: 0, // 0 = none, 1 = open eyes, 2 = closed eyes, 3 = blush only
+  faceColor: '#33203a',
+  faceGlow: 0, // > 0: the face lines are emissive
+  blush: 0,
+  blushColor: '#ff80ad',
+  whiskers: 0,
   // Atmosphere shell (UE: translucent additive mesh)
   atmoColor: '#7fd8ff',
   atmoIntensity: 1,
@@ -242,11 +297,26 @@ export const PLANET_DEFAULTS = {
   orbitSpeedDegPerSec: 45,
   orbitPulses: 2,
   orbitPulseLength: 0.35, // fraction of the gap between pulses
+  // Attachments: extra basic meshes around the planet (UE: components beside the sphere, not children of a scaled one)
+  attach: 'none' as AttachName,
+  earSize: 1,
+  earSpacingDeg: 29, // angle from the top of the head
+  earAngleDeg: 0, // outward lean
+  earFlatDeg: 0, // backward lean
+  accentColor: '#ff80ad', // inner ear
+  collar: 0, // cat ears only: 1 = collar with a cargo tag
+  collarColor: '#4cc7f2',
+  zzz: 0, // cat ears only: floating sleep marks
 };
 
-export type PlanetPreset = Preset & { planet?: Partial<typeof PLANET_DEFAULTS>; shape?: PlanetShapeName };
+export type PlanetPreset = Preset & {
+  planet?: Partial<typeof PLANET_DEFAULTS>;
+  shape?: PlanetShapeName;
+  group?: string; // gallery heading; default 'Planets'
+  light?: Partial<typeof LIGHT_DEFAULTS>; // only where the look needs its own sun (faces)
+};
 // Planets are round, so the object-height gradient and spherical normal are off by default.
-const PLANET_STYLE = { normalSoften: 0, gradientStrength: 0 };
+export const PLANET_STYLE = { normalSoften: 0, gradientStrength: 0 };
 
 export const PLANET_PRESETS = {
   'Kawaii Terra': {
@@ -499,7 +569,7 @@ export const LIGHT_DEFAULTS = {
 };
 
 export const SCENE_DEFAULTS = {
-  appMode: 'material' as AppMode,
+  appMode: 'planet' as AppMode, // the page opens on the planet gallery
   shape: 'sphere' as ShapeName,
   planetShape: 'sphere' as PlanetShapeName,
 };
@@ -568,6 +638,21 @@ export const RANGES: Record<string, Range> = {
   shieldHexCount: { min: 6, max: 64, step: 1 },
   shieldHitRate: { min: 0, max: 3, step: 0.05 },
   outlineWidth: { min: 0, max: 8, step: 0.1 },
+  toonSteps: { min: 2, max: 4, step: 1 },
+  toonSoftness: { min: 0, max: 0.5, step: 0.005 },
+  scale: { min: 0.3, max: 1.5, step: 0.01 },
+  swayDeg: { min: 0, max: 90, step: 1 },
+  bandTwist: { min: -8, max: 8, step: 1 },
+  cellScale: { min: 1, max: 12, step: 0.1 },
+  cellCrackWidth: { min: 0.005, max: 0.3, step: 0.005 },
+  cellDotSize: { min: 0.05, max: 0.6, step: 0.01 },
+  cellGlow: { min: 0, max: 20, step: 0.1 },
+  face: { min: 0, max: 3, step: 1 },
+  earSize: { min: 0.6, max: 1.4, step: 0.01 },
+  earSpacingDeg: { min: 10, max: 60, step: 1 },
+  earAngleDeg: { min: -20, max: 40, step: 1 },
+  earFlatDeg: { min: 0, max: 60, step: 1 },
+  toggle: { min: 0, max: 1, step: 1 },
   renderScale: { min: 0.5, max: 2, step: 0.05 },
 };
 

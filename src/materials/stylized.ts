@@ -29,6 +29,10 @@ const createUniforms = () => ({
   uRimLightSide: { value: 0 },
   uSubsurfaceColor: { value: new THREE.Color(0, 0, 0) },
   uSubsurfaceOpacity: { value: 0.5 },
+  uToonness: { value: 0 },
+  uToonSteps: { value: 2 },
+  uToonSoftness: { value: 0.05 },
+  uSunRadiance: { value: new THREE.Color() }, // per frame: sun colour * intensity
 });
 
 export function replaceOnce(src: string, find: string, replacement: string): string {
@@ -39,9 +43,11 @@ export function replaceOnce(src: string, find: string, replacement: string): str
 
 export const after = (src: string, find: string, code: string) => replaceOnce(src, find, `${find}\n${code}`);
 
-/** Adds the material-level NPR layer and the subsurface term. With uStylize = 0 and black subsurface it is plain PBR. */
-export function addStylizedLayer(m: THREE.MeshPhysicalMaterial): StylizedUniforms {
-  const uniforms = createUniforms();
+/**
+ * Adds the material-level NPR layer and the subsurface term. With uStylize = 0 and black subsurface it is plain PBR.
+ * Pass the uniforms of another material to share one NPR look (planet attachments).
+ */
+export function addStylizedLayer(m: THREE.MeshPhysicalMaterial, uniforms: StylizedUniforms = createUniforms()): StylizedUniforms {
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
 
@@ -81,6 +87,9 @@ export function applyStylized(u: StylizedUniforms, p: StylizedParams, mat: Defau
   u.uRimLightSide.value = p.rimLightSide;
   u.uSubsurfaceColor.value.set(mat.subsurfaceColor);
   u.uSubsurfaceOpacity.value = mat.subsurfaceOpacity;
+  u.uToonness.value = p.toonness;
+  u.uToonSteps.value = p.toonSteps;
+  u.uToonSoftness.value = p.toonSoftness;
 }
 
 /** Object-space height range for the albedo gradient (UE: ObjectLocalBounds). */
@@ -92,7 +101,9 @@ export function setStylizedBounds(u: StylizedUniforms, geometry: THREE.BufferGeo
 /** Per-frame view-space inputs; the MPC equivalent. Call after the camera matrix is current. */
 export function updateStylizedView(
   u: StylizedUniforms, sunDirWorld: THREE.Vector3, centerWorld: THREE.Vector3, camera: THREE.Camera,
+  sun: THREE.DirectionalLight,
 ): void {
+  u.uSunRadiance.value.copy(sun.color).multiplyScalar(sun.intensity);
   u.uSunDirView.value.copy(sunDirWorld).transformDirection(camera.matrixWorldInverse);
   u.uCenterView.value.copy(centerWorld).applyMatrix4(camera.matrixWorldInverse);
 }

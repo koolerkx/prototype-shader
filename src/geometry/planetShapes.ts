@@ -71,6 +71,8 @@ function radialDistance(shape: PlanetShapeName, x: number, y: number, z: number)
     }
     return t;
   }
+  // Rounded cube: the 6-norm unit ball. The atmosphere SDF uses the same surface.
+  if (shape === 'roundCube') return (PLANET_VIEW.roundCubeSize * R) / (x ** 6 + y ** 6 + z ** 6) ** (1 / 6);
   return R;
 }
 
@@ -123,7 +125,19 @@ function gridIndex(): number[] {
   }
   return index;
 }
-const INDEX = gridIndex();
+const INDEX = new THREE.Uint32BufferAttribute(gridIndex(), 1); // one typed array shared by every geometry
+
+/** Position offsets of the grid border vertices: first and last row, first and last column. */
+function gridBorder(): number[] {
+  const out: number[] = [];
+  for (let iy = 0; iy <= NV; iy++) {
+    for (let ix = 0; ix <= NU; ix++) {
+      if (iy === 0 || iy === NV || ix === 0 || ix === NU) out.push((iy * (NU + 1) + ix) * 3);
+    }
+  }
+  return out;
+}
+const BORDER = gridBorder();
 
 /** Positions and smooth normals of one shape. Vertices that share a position (seam, poles) share one normal. */
 function buildTarget(shape: PlanetShapeName, roundness: number): { position: Float32Array; normal: Float32Array; yRange: [number, number] } {
@@ -146,9 +160,13 @@ function buildTarget(shape: PlanetShapeName, roundness: number): { position: Flo
   const normal = (g.getAttribute('normal') as THREE.BufferAttribute).array as Float32Array;
   g.dispose();
 
-  const groups = new Map<string, number[]>();
-  for (let i = 0; i < position.length; i += 3) {
-    const key = `${Math.round(position[i] * 1e4)},${Math.round(position[i + 1] * 1e4)},${Math.round(position[i + 2] * 1e4)}`;
+  // Only the grid border can share positions: the u seam (first / last column) and the pole rows, which are one
+  // point on a sphere and one circle on a torus. Checking only those, with a numeric key, keeps the build fast.
+  // Key: three 15-bit quantised coordinates packed into one exact double.
+  const q = (v: number) => Math.round(v * 1e4) + 16384;
+  const groups = new Map<number, number[]>();
+  for (const i of BORDER) {
+    const key = (q(position[i]) * 32768 + q(position[i + 1])) * 32768 + q(position[i + 2]);
     const list = groups.get(key);
     if (list) list.push(i);
     else groups.set(key, [i]);
@@ -200,4 +218,5 @@ export const SHAPE_EXTENT: Record<PlanetShapeName, number> = {
   icosahedron: R,
   torus: (PLANET_VIEW.torusMajor + PLANET_VIEW.torusTube) * R,
   starTorus: (PLANET_VIEW.starOuter + PLANET_VIEW.starTube) * R,
+  roundCube: (PLANET_VIEW.roundCubeSize * R * Math.sqrt(3)) / 3 ** (1 / 6), // corner
 };

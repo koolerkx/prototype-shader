@@ -32,12 +32,19 @@ uniform float uRimSoftness;
 uniform float uRimLightSide;
 uniform vec3 uSubsurfaceColor;
 uniform float uSubsurfaceOpacity;
+uniform float uToonness;
+uniform float uToonSteps;
+uniform float uToonSoftness;
+uniform vec3 uSunRadiance;
 `;
 
 // After <color_fragment>. UE: lerp(BaseColor, GradientColor, (1 - LocalY / BoundsY) * k) with ObjectLocalBounds.
 export const STYLIZED_ALBEDO = /* glsl */ `
 float styleH = saturate( ( vStyleObjY - uHeightRange.x ) / max( uHeightRange.y - uHeightRange.x, 1e-4 ) );
 diffuseColor.rgb = mix( diffuseColor.rgb, uGradientColor, ( 1.0 - styleH ) * uGradientStrength * uStylize );
+// Toon mix: the lit Base Color keeps a residual; the stepped part is added as emissive after the lights.
+vec3 styleAlbedo = diffuseColor.rgb;
+diffuseColor.rgb *= 1.0 - 0.9 * uToonness * uStylize;
 `;
 
 // After <normal_fragment_maps>, before lighting, so direct light and IBL both use it.
@@ -62,7 +69,21 @@ reflectedLight.directDiffuse += directLight.color * mix( ssBackScatter, 1.0, ssI
 // After <lights_fragment_end>. UE: Emissive input, sun direction from an MPC; ignores cast shadows.
 export const STYLIZED_POST_LIGHTS = /* glsl */ `
 float styleNL = dot( styleN, uSunDirView );
-totalEmissiveRadiance += diffuseColor.rgb * uShadeColor * ( uShadeStrength * ( 1.0 - saturate( styleNL ) ) * uStylize );
+totalEmissiveRadiance += styleAlbedo * uShadeColor * ( uShadeStrength * ( 1.0 - saturate( styleNL ) ) * uStylize );
+// Toon diffuse: N·L cut into steps, dark side tinted by the shade colour, at the brightness of the Lambert term it replaces.
+if ( uToonness * uStylize > 0.0 ) {
+	float toonCuts = max( floor( uToonSteps + 0.5 ) - 1.0, 1.0 );
+	float toonW = max( fwidth( styleNL ), uToonSoftness );
+	float toonLit = 0.0;
+	for ( int i = 0; i < 3; i ++ ) {
+		if ( float( i ) >= toonCuts ) break;
+		float cut = toonCuts < 1.5 ? 0.0 : mix( - 0.1, 0.4, float( i ) / ( toonCuts - 1.0 ) );
+		toonLit += smoothstep( cut - toonW, cut + toonW, styleNL );
+	}
+	toonLit /= toonCuts;
+	totalEmissiveRadiance += styleAlbedo * ( 1.0 - metalnessFactor ) * mix( uShadeColor, vec3( 1.0 ), toonLit )
+		* uSunRadiance * ( RECIPROCAL_PI * uToonness * uStylize );
+}
 float styleBand = 1.0 - smoothstep( 0.0, uTerminatorWidth, abs( styleNL ) );
 totalEmissiveRadiance += uTerminatorColor * ( uTerminatorIntensity * styleBand * uStylize );
 float rimNV = 1.0 - saturate( dot( styleN, geometryViewDir ) );

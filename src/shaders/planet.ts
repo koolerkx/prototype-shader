@@ -17,7 +17,7 @@ vPlanetObjN = objectNormal;
 `;
 
 // 3D simplex noise: Ashima Arts / Stefan Gustavson, MIT licence.
-const NOISE = /* glsl */ `
+export const NOISE = /* glsl */ `
 vec3 planetMod289( vec3 x ) { return x - floor( x * ( 1.0 / 289.0 ) ) * 289.0; }
 vec4 planetMod289( vec4 x ) { return x - floor( x * ( 1.0 / 289.0 ) ) * 289.0; }
 vec4 planetPermute( vec4 x ) { return planetMod289( ( ( x * 34.0 ) + 10.0 ) * x ); }
@@ -133,6 +133,29 @@ uniform float uNeonIntensity;
 uniform float uNeonSeams;
 uniform float uNeonContours;
 uniform float uNeonSpeed;
+uniform float uNeonGrid;
+uniform float uTerrace;
+uniform float uSurfaceEmissive;
+uniform float uBandTwist;
+uniform float uCellScale;
+uniform float uCellCracks;
+uniform float uCellCrackWidth;
+uniform float uCellDots;
+uniform float uCellDotSize;
+uniform float uCellFacets;
+uniform vec3 uCellColor;
+uniform float uCellGlow;
+uniform vec3 uCellGlowColor;
+uniform float uAuroraIntensity;
+uniform vec3 uAuroraColor;
+uniform vec3 uAuroraColorB;
+uniform float uParcel;
+uniform float uFace;
+uniform vec3 uFaceColor;
+uniform float uFaceGlow;
+uniform float uBlush;
+uniform vec3 uBlushColor;
+uniform float uWhiskers;
 uniform float uScanProgress;
 uniform vec2 uScanRange;
 uniform vec3 uScanColor;
@@ -143,6 +166,31 @@ vec3 planetHash3( vec3 p ) {
 	p = vec3( dot( p, vec3( 127.1, 311.7, 74.7 ) ), dot( p, vec3( 269.5, 183.3, 246.1 ) ), dot( p, vec3( 113.5, 271.9, 124.6 ) ) );
 	return fract( sin( p ) * 43758.5453123 );
 }
+
+// Voronoi: F1, F2 and the hash of the nearest cell; planetCellPoint is the feature point of that cell.
+// Set by planetHeight and read by the colour pass and the facet normal.
+vec3 planetCell = vec3( 8.0, 8.0, 0.0 );
+vec3 planetCellPoint = vec3( 0.0 );
+vec3 planetVoronoi( vec3 P ) {
+	vec3 b = floor( P );
+	vec3 res = vec3( 8.0, 8.0, 0.0 );
+	for ( int x = - 1; x <= 1; x ++ ) for ( int y = - 1; y <= 1; y ++ ) for ( int z = - 1; z <= 1; z ++ ) {
+		vec3 c = b + vec3( x, y, z );
+		vec3 h = planetHash3( c );
+		float d = length( c + h - P );
+		if ( d < res.x ) { res = vec3( d, res.x, h.x ); planetCellPoint = c + h; }
+		else if ( d < res.y ) res.y = d;
+	}
+	return res;
+}
+bool planetCellsOn() { return uCellCracks + uCellDots + uCellFacets + uCellGlow > 0.0; }
+// One dot per cell; a fifth of the cells stay empty. x: dot radius, y: 1 when the cell has a dot.
+vec2 planetDot() { return vec2( uCellDotSize * mix( 0.7, 1.15, fract( planetCell.z * 7.13 ) ), step( 0.2, fract( planetCell.z * 3.71 ) ) ); }
+
+// Face shapes on the xy plane of the unit direction.
+float planetEll( vec2 f, vec2 c, vec2 r, float aa ) { return 1.0 - smoothstep( 1.0 - aa, 1.0 + aa, length( ( f - c ) / r ) ); }
+float planetArc( vec2 f, vec2 c, float r, float w ) { return ( 1.0 - smoothstep( w * 0.6, w, abs( length( f - c ) - r ) ) ) * step( f.y, c.y ); }
+float planetSeg( vec2 p, vec2 a, vec2 b ) { vec2 pa = p - a, ba = b - a; return length( pa - ba * clamp( dot( pa, ba ) / dot( ba, ba ), 0.0, 1.0 ) ); }
 
 // Surface height 0..1 at an object-space point (in planet radii). One function feeds both the colour pass and the
 // normal, so colour and relief always match (UE: one height texture drives Base Color and the normal map).
@@ -162,7 +210,8 @@ float planetHeight( vec3 pos, vec3 n, out vec3 warp, out float terrain, out floa
 		float lat = clamp( pos.y, - 1.0, 1.0 );
 		vec3 bandPos = planetRotY( pos, t * uBandSpeed * ( 0.4 + 0.6 * ( 1.0 - lat * lat ) ) );
 		float turb = planetFbm( bandPos * uNoiseScale * 1.5 + uSeed + warp * uWarp, 4.0 );
-		float stripes = 0.5 + 0.5 * sin( ( lat * uBandFrequency + turb * uBandTurbulence ) * PI );
+		float twist = uBandTwist != 0.0 ? uBandTwist * atan( bandPos.z, bandPos.x ) : 0.0; // candy swirl
+		float stripes = 0.5 + 0.5 * sin( ( lat * uBandFrequency + turb * uBandTurbulence ) * PI + twist );
 		h = mix( h, stripes, uBands );
 	}
 
@@ -184,6 +233,16 @@ float planetHeight( vec3 pos, vec3 n, out vec3 warp, out float terrain, out floa
 			crater += bowl * 0.6 + rim * 0.3;
 		}
 		h += uCraters * crater * 0.3;
+	}
+
+	// Voronoi cells: border grooves, a dome per dot; facets flatten the relief (their normal is set per cell).
+	if ( planetCellsOn() ) {
+		planetCell = planetVoronoi( pos * uCellScale + uSeed * 0.53 );
+		float border = planetCell.y - planetCell.x;
+		h -= uCellCracks * ( 1.0 - smoothstep( 0.0, uCellCrackWidth * 2.0, border ) ) * 0.35;
+		vec2 dotR = planetDot();
+		h += uCellDots * dotR.y * sqrt( saturate( 1.0 - pow( planetCell.x / dotR.x, 2.0 ) ) ) * 0.3;
+		h = mix( h, 0.5, uCellFacets );
 	}
 
 	// Machine panels: a 3D lattice cut by the surface. Each cell is a raised plate, the seams are grooves.
@@ -263,8 +322,11 @@ if ( uPlanet > 0.5 ) {
 	float edge = fwidth( h ) + 1e-3;
 	float land = smoothstep( uSeaLevel - edge, uSeaLevel + edge, h );
 	float landH = saturate( ( h - uSeaLevel ) / max( 1.0 - uSeaLevel, 1e-3 ) );
-	vec3 landCol = mix( uLowColor, uMidColor, smoothstep( 0.0, 0.5, landH ) );
-	landCol = mix( landCol, uHighColor, smoothstep( 0.5, 1.0, landH ) );
+	// Terrace: the same ramp cut into three flat tones (anti-aliased), with soft steps in the relief.
+	float terraceW = fwidth( landH ) + 1e-3;
+	vec3 landCol = mix( uLowColor, uMidColor, mix( smoothstep( 0.0, 0.5, landH ), smoothstep( 0.42 - terraceW, 0.42 + terraceW, landH ), uTerrace ) );
+	landCol = mix( landCol, uHighColor, mix( smoothstep( 0.5, 1.0, landH ), smoothstep( 0.6 - terraceW, 0.6 + terraceW, landH ), uTerrace ) );
+	planetReliefH = mix( planetReliefH, ( smoothstep( 0.38, 0.46, landH ) + smoothstep( 0.56, 0.64, landH ) ) * 0.2 + h * 0.3, uTerrace );
 	vec3 seaCol = mix( uDeepColor, uShallowColor, smoothstep( uSeaLevel - 0.12, uSeaLevel, h ) );
 	vec3 col = mix( seaCol, landCol, land );
 	planetRough = mix( uOceanRoughness, uLandRoughness, land );
@@ -283,6 +345,29 @@ if ( uPlanet > 0.5 ) {
 	planetRough = mix( planetRough, 0.35, ice );
 	planetRelief *= 1.0 - 0.7 * ice;
 	planetMetal *= 1.0 - ice;
+
+	// Cells: facet tone per cell, dots, tinted cracks, and glowing borders (lava, gem edges).
+	if ( planetCellsOn() ) {
+		float border = planetCell.y - planetCell.x;
+		float cw = max( uCellCrackWidth, fwidth( border ) );
+		float crack = 1.0 - smoothstep( cw * 0.5, cw, border );
+		vec3 facetCol = mix( mix( uLowColor, uMidColor, planetCell.z ), uHighColor, step( 0.8, planetCell.z ) );
+		col = mix( col, facetCol, uCellFacets );
+		vec2 dotR = planetDot();
+		float dotW = fwidth( planetCell.x ) + 1e-3;
+		float dotMask = ( 1.0 - smoothstep( dotR.x - dotW, dotR.x + dotW, planetCell.x ) ) * dotR.y * uCellDots;
+		col = mix( col, uCellColor, dotMask );
+		planetRough = mix( planetRough, min( planetRough + 0.3, 1.0 ), dotMask );
+		col = mix( col, uCellColor, crack * uCellCracks * ( 1.0 - 0.7 * ice ) );
+		if ( uCellGlow > 0.0 ) {
+			float core = 1.0 - smoothstep( cw * 0.2, cw * 0.5, border );
+			float pulse = 0.8 + 0.2 * sin( t * 1.5 + planetCell.z * PI2 );
+			planetGlow += uCellGlowColor * ( uCellGlow * crack * pulse * ( 1.0 + 2.0 * core ) * ( 1.0 - ice ) );
+			col *= 1.0 - crack * saturate( uCellGlow );
+			// A few facets flash (gem sparkle).
+			planetGlow += vec3( uCellFacets * step( 0.95, planetCell.z ) * pow( max( 0.0, sin( t * 2.4 + planetCell.z * 40.0 ) ), 8.0 ) * 2.0 );
+		}
+	}
 
 	// Magma: low areas and ridged cracks glow, with a slow pulse.
 	if ( uGlowIntensity > 0.0 ) {
@@ -312,6 +397,29 @@ if ( uPlanet > 0.5 ) {
 		planetGlow += neonCol * ( uNeonIntensity * saturate( neon ) * ( 1.0 - ice ) );
 	}
 
+	// Hologram globe: latitude / longitude lines about 1.5 px wide.
+	if ( uNeonGrid > 0.0 ) {
+		vec3 d = normalize( pos );
+		float la = asin( clamp( d.y, - 1.0, 1.0 ) ) / PI * 9.0;
+		float lo = atan( d.z, d.x ) / PI2 * 16.0;
+		float wa = fwidth( la ) + 1e-4;
+		float wb = min( fwidth( lo ), 0.5 ) + 1e-4; // the atan seam sits on a grid line
+		float lines = max( 1.0 - smoothstep( wa * 0.8, wa * 2.0, abs( fract( la + 0.5 ) - 0.5 ) ), 1.0 - smoothstep( wb * 0.8, wb * 2.0, abs( fract( lo + 0.5 ) - 0.5 ) ) );
+		planetGlow += uNeonColor * ( uNeonGrid * lines );
+	}
+
+	// Aurora: two curtains turning in opposite directions inside a belt around each pole.
+	if ( uAuroraIntensity > 0.0 ) {
+		float al = abs( normalize( pos ).y );
+		float belt = smoothstep( 0.6, 0.7, al ) * ( 1.0 - smoothstep( 0.85, 0.95, al ) );
+		vec3 pa = planetRotY( pos, t * 0.3 );
+		vec3 pb = planetRotY( pos, - t * 0.2 );
+		float c1 = sin( atan( pa.z, pa.x ) * 6.0 + planetNoise( pa * 2.0 ) * 3.0 );
+		float c2 = sin( atan( pb.z, pb.x ) * 5.0 + planetNoise( pb * 2.0 + 5.0 ) * 3.0 );
+		float curtain = max( smoothstep( 0.2, 0.4, c1 ), smoothstep( 0.4, 0.6, c2 ) * 0.7 ) * belt;
+		planetGlow += mix( uAuroraColor, uAuroraColorB, saturate( ( al - 0.7 ) / 0.2 ) ) * ( uAuroraIntensity * curtain );
+	}
+
 	// City lights: clustered speckles on land; shown on the night side after the normal is known.
 	if ( uCityIntensity > 0.0 ) {
 		float region = smoothstep( 1.0 - uCityDensity, 1.3 - uCityDensity, planetNoise( p * 2.0 + 40.0 ) * 0.5 + 0.5 );
@@ -333,6 +441,63 @@ if ( uPlanet > 0.5 ) {
 		planetMetal *= 1.0 - cloud;
 		planetCity *= 1.0 - cloud;
 		planetGlow *= 1.0 - 0.8 * cloud;
+	}
+
+	// Parcel: tape around two axes, a label and a blinking lamp on the +Z face. Object space, in planet radii.
+	if ( uParcel > 0.0 ) {
+		float tape = max( 1.0 - smoothstep( 0.14, 0.155, abs( pos.x ) ), 1.0 - smoothstep( 0.14, 0.155, abs( pos.y ) ) );
+		float front = step( 0.55, pos.z );
+		float label = ( 1.0 - smoothstep( 0.03, 0.045, length( max( abs( pos.xy - vec2( - 0.4, - 0.4 ) ) - vec2( 0.13, 0.11 ), 0.0 ) ) ) ) * front;
+		float lamp = ( 1.0 - smoothstep( 0.025, 0.04, length( pos.xy - vec2( - 0.3, - 0.33 ) ) ) ) * front;
+		col = mix( col, uLowColor, uParcel );
+		col = mix( col, uMidColor, tape * uParcel );
+		col = mix( col, uHighColor, label * uParcel );
+		planetRough = mix( planetRough, mix( 0.5, 0.7, label ), max( tape, label ) * uParcel );
+		planetReliefH = mix( planetReliefH, 0.5 + 0.15 * tape, uParcel );
+		planetGlow += uNeonColor * ( uParcel * lamp * 2.0 * step( 0.0, sin( t * 3.0 ) ) );
+	}
+
+	// Face on the +Z side. The unit direction ignores the object scale, so the face follows an ellipsoid.
+	if ( uFace > 0.5 ) {
+		vec3 d = normalize( pos );
+		float faceMask = smoothstep( 0.55, 0.8, d.z ) * ( 1.0 - smoothstep( 0.15, 0.5, d.y ) );
+		col = mix( col, uLowColor, faceMask ); // patterns stay off the face
+		planetRelief *= 1.0 - faceMask;
+		if ( d.z > 0.0 ) {
+			vec2 f = d.xy;
+			float eyes = 0.0, shine = 0.0, blush = 0.0, wh = 0.0;
+			for ( int k = 0; k < 2; k ++ ) {
+				float sg = k == 0 ? 1.0 : - 1.0;
+				vec2 e = vec2( sg * 0.3, 0.06 );
+				if ( uFace < 1.5 ) {
+					eyes += planetEll( f, e, vec2( 0.075, 0.1 ), 0.15 );
+					shine += planetEll( f, e + vec2( 0.025, 0.035 ), vec2( 0.025 ), 0.3 );
+				} else if ( uFace < 2.5 ) eyes += planetArc( f, e + vec2( 0.0, 0.05 ), 0.08, 0.022 );
+				blush += planetEll( f, vec2( sg * 0.47, - 0.13 ), vec2( 0.12, 0.065 ), 0.4 );
+				for ( int j = 0; j < 3; j ++ ) {
+					float y0 = - 0.08 - 0.05 * float( j );
+					wh = max( wh, 1.0 - smoothstep( 0.006, 0.012, planetSeg( f, vec2( sg * 0.52, y0 ), vec2( sg * 0.8, y0 + 0.05 * ( 1.0 - float( j ) ) - 0.03 ) ) ) );
+				}
+			}
+			float drawn = uFace < 2.5 ? 1.0 : 0.0;
+			float mouth = max( planetArc( f, vec2( 0.04, - 0.12 ), 0.04, 0.018 ), planetArc( f, vec2( - 0.04, - 0.12 ), 0.04, 0.018 ) ) * drawn;
+			float nose = planetEll( f, vec2( 0.0, - 0.075 ), vec2( 0.035, 0.022 ), 0.3 ) * drawn;
+			float lines = saturate( eyes + mouth + wh * uWhiskers );
+			float lit = step( uFaceGlow, 0.0 ); // 1 = ink face, 0 = emissive face
+			col = mix( col, uBlushColor, blush * 0.75 * uBlush );
+			col = mix( col, uBlushColor * 0.8, nose );
+			col = mix( col, uFaceColor * lit, lines );
+			col = mix( col, vec3( 1.0 ), shine * lit );
+			planetGlow += uFaceColor * ( uFaceGlow * lines ) + vec3( shine * mix( 1.0, 0.4, lit ) );
+			planetRough = mix( planetRough, 0.12, saturate( eyes ) );
+		}
+	}
+
+	// Unlit surface (star): the colour is emitted and the lit Base Color goes black.
+	if ( uSurfaceEmissive > 0.0 ) {
+		planetGlow += col * uSurfaceEmissive;
+		col = vec3( 0.0 );
+		planetRough = 1.0;
 	}
 
 	// Scan front: hologram tint, a bright edge and a grid inside the band.
@@ -374,6 +539,11 @@ if ( uPlanet > 0.5 && uBump > 0.0 ) {
 	if ( tiltLen > 1.5 ) tilt *= 1.5 / tiltLen; // steep pixels (crater rims, seams) must not turn the normal away
 	normal = normalize( normal - tilt );
 }
+// Facets: one flat normal per Voronoi cell, towards the cell centre plus a random lean (UE: baked facet normal map).
+if ( uPlanet > 0.5 && uCellFacets > 0.0 ) {
+	vec3 facetN = normalize( ( planetCellPoint - uSeed * 0.53 ) / uCellScale ) + ( planetHash3( planetCell.zzz * vec3( 91.0, 7.0, 13.0 ) ) - 0.5 ) * 0.5;
+	normal = normalize( mix( normal, normalize( uPlanetObjToView * facetN ), uCellFacets ) );
+}
 `;
 
 // After <emissivemap_fragment>. City lights use the sun direction from the stylized layer (UE: MPC).
@@ -389,7 +559,8 @@ if ( uPlanet > 0.5 ) {
 		// Cheap rainbow from the film thickness and the view angle, not a physical thin-film evaluation.
 		float filmPhase = planetFilm * 2.5 + fres * 1.5 + uPlanetTime * 0.05;
 		vec3 rainbow = 0.5 + 0.5 * cos( PI2 * ( filmPhase + vec3( 0.0, 0.33, 0.67 ) ) );
-		totalEmissiveRadiance += rainbow * ( uBubble * ( 0.35 + 0.65 * fres ) * 0.8 );
+		// The hologram globe is a clear shell: no film colours.
+		totalEmissiveRadiance += rainbow * ( uBubble * ( 1.0 - saturate( uNeonGrid ) ) * ( 0.35 + 0.65 * fres ) * 0.8 );
 	}
 }
 `;
@@ -428,6 +599,7 @@ const float SDF_TORUS_TUBE = ${k(PLANET_VIEW.torusTube * R)};
 const float SDF_STAR_OUTER = ${k(PLANET_VIEW.starOuter * R)};
 const float SDF_STAR_INNER = ${k(PLANET_VIEW.starOuter * PLANET_VIEW.starInner * R)};
 const float SDF_STAR_TUBE = ${k(PLANET_VIEW.starTube * R)};
+const float SDF_CUBE = ${k(PLANET_VIEW.roundCubeSize * R)};
 
 float sdfStarRadius( float u ) {
 	const float seg = PI / 5.0;
@@ -460,6 +632,10 @@ float sdfShape( int id, vec3 p ) {
 		float u = atan( p.z, p.x );
 		if ( u < 0.0 ) u += PI2;
 		return length( vec2( length( p.xz ) - sdfStarRadius( u ), p.y ) ) - SDF_STAR_TUBE; // approximate near the tips
+	}
+	if ( id == 6 ) { // rounded cube: 6-norm, approximate
+		vec3 q = p * p * p;
+		return pow( dot( q, q ), 1.0 / 6.0 ) - SDF_CUBE;
 	}
 	return length( p ) - SDF_R;
 }

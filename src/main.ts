@@ -2,14 +2,17 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { ViewHelper } from 'three/addons/helpers/ViewHelper.js';
+import { GALLERY_PRESETS } from './config/galleryPresets';
 import {
-  APP_MODES, DEG2RAD, LIGHT_DEFAULTS, MATERIAL_DEFAULTS, MATERIAL_MODES, PLANET_DEFAULT_PRESET, PLANET_DEFAULTS,
-  PLANET_PRESET_NAMES, PLANET_PRESETS, PLANET_SHAPES, PLANET_VIEW, PRESET_NAMES, PRESETS, RANGES, SCENE_DEFAULTS, SHAPES,
-  STYLIZED_DEFAULTS, TONE_MAPPINGS, VIEW, type AppMode, type PlanetPreset, type PlanetPresetName, type PlanetShapeName,
+  APP_MODES, ATTACHMENTS, DEG2RAD, LIGHT_DEFAULTS, MATERIAL_DEFAULTS, MATERIAL_MODES, PLANET_DEFAULT_PRESET, PLANET_DEFAULTS,
+  PLANET_PRESETS, PLANET_SHAPES, PLANET_VIEW, PRESET_NAMES, PRESETS, RANGES, SCENE_DEFAULTS, SHAPES,
+  STYLIZED_DEFAULTS, TONE_MAPPINGS, VIEW, type AppMode, type PlanetPreset, type PlanetShapeName,
   type Preset, type PresetName, type ToneMappingName,
 } from './config/tuning';
+import { ueBadge, ueRating } from './config/ueFeasibility';
 import { createPlanetGeometry, SHAPE_EXTENT, type PlanetGeometry } from './geometry/planetShapes';
 import { createPrimitive } from './geometry/primitives';
+import { createAttachments } from './materials/attachments';
 import { applyDefaultLit, createDefaultLit } from './materials/defaultLit';
 import { applyOutline, createOutline } from './materials/outline';
 import {
@@ -17,7 +20,7 @@ import {
   createRing, createShield, setAtmosphereShape, updatePlanetFrame, updatePlanetView,
 } from './materials/planet';
 import { addStylizedLayer, applyStylized, setStylizedBounds, updateStylizedView } from './materials/stylized';
-import { createGallery } from './ui/gallery';
+import { createGallery, type GalleryItem } from './ui/gallery';
 import { createPanel } from './ui/panel';
 import {
   downloadPresets, loadUserPresets, parseImport, pickTextFile, sanitize, saveUserPresets, STATE_VERSION, upsert,
@@ -89,6 +92,7 @@ const styleParams = { ...STYLIZED_DEFAULTS };
 
 // Each app mode keeps its own Material, NPR and Lighting params, so switching never overwrites the other mode's tweaks.
 type ModeParams = { material: typeof matParams; stylized: typeof styleParams; light: typeof lightParams };
+const ALL_PLANETS: Record<string, PlanetPreset> = { ...PLANET_PRESETS, ...GALLERY_PRESETS };
 const firstPlanet: PlanetPreset = PLANET_PRESETS[PLANET_DEFAULT_PRESET];
 const planetParams = { ...PLANET_DEFAULTS, ...firstPlanet.planet };
 const modeLight = (mode: AppMode) =>
@@ -103,6 +107,8 @@ const modeParams: Record<AppMode, ModeParams> = {
 };
 let activeMode = sceneParams.appMode;
 let planetTime = 0; // seconds, scaled by timeScale
+let presetLight = false; // the applied preset carried its own light; the next one without a light restores the mode default
+let ueButton: HTMLButtonElement | undefined; // panel row that shows the UE5 rating of the current settings
 
 const material = createDefaultLit();
 const styleUniforms = addStylizedLayer(material);
@@ -122,6 +128,8 @@ const orbits = createOrbits();
 pivot.add(orbits);
 const shield = createShield();
 pivot.add(shield);
+const attachments = createAttachments(styleUniforms); // siblings of the mesh: they follow its yaw, not its scale
+pivot.add(attachments.group);
 const localCenter = new THREE.Vector3();
 const meshCenter = new THREE.Vector3(); // world space, per frame
 const sunDir = new THREE.Vector3();
@@ -207,6 +215,21 @@ function applyMaterial() {
   applyDefaultLit(material, matParams);
   applyStylized(styleUniforms, styleParams, matParams);
   applyOutlineParams();
+  applyAttachments();
+}
+/** Attachments copy the Default Lit layers, so material changes reach them too. Also refreshes the UE5 rating. */
+function applyAttachments() {
+  attachments.apply(planetParams, matParams, isPlanet());
+  if (!ueButton) return;
+  const badge = ueBadge(ueRating(matParams, styleParams, isPlanet() ? planetParams : undefined, sceneParams.planetShape));
+  ueButton.textContent = badge.text;
+  ueButton.title = badge.title;
+  ueButton.className = `ue-${badge.level}`;
+}
+/** Object scale; `breath` is the current squash-and-stretch offset. */
+function applyScale(breath = 0) {
+  if (isPlanet()) mesh.scale.set(planetParams.scaleX * (1 + breath), planetParams.scaleY * (1 - 0.7 * breath), planetParams.scaleZ * (1 + breath));
+  else mesh.scale.setScalar(1);
 }
 function applyLight() {
   const az = lightParams.sunAzimuthDeg * DEG2RAD;
@@ -226,6 +249,8 @@ function applyPlanetParams() {
   applyOrbits(orbits, planetParams);
   applyShield(shield, planetParams, extentNow);
   applyMorph();
+  applyScale();
+  applyAttachments();
   planetUniforms.uPlanet.value = planet ? 1 : 0;
   outline.material.uniforms.uScanProgress.value = planet ? planetParams.scanProgress : 1;
   pivot.position.y = planet ? PLANET_VIEW.centerY : 0;
@@ -280,23 +305,30 @@ function playScan() {
 const USER = '★ ';
 const userPresets = loadUserPresets();
 
+const builtinStates = new Map<string, SavedState>(); // one object per preset: the gallery caches thumbnails by state
 function builtinState(mode: AppMode, name: string): SavedState | undefined {
+  const id = `${mode}/${name}`;
+  let s = builtinStates.get(id);
+  if (s) return s;
   if (mode === 'planet') {
-    const p: PlanetPreset | undefined = PLANET_PRESETS[name as PlanetPresetName];
-    return p && {
+    const p: PlanetPreset | undefined = ALL_PLANETS[name];
+    s = p && {
       version: STATE_VERSION, name, appMode: mode, planetShape: p.shape ?? 'sphere',
-      planet: p.planet, material: p.material, stylized: p.stylized,
+      planet: p.planet, material: p.material, stylized: p.stylized, light: p.light,
     };
+  } else {
+    const p: Preset | undefined = PRESETS[name as PresetName];
+    s = p && { version: STATE_VERSION, name, appMode: mode, material: p.material, stylized: p.stylized };
   }
-  const p: Preset | undefined = PRESETS[name as PresetName];
-  return p && { version: STATE_VERSION, name, appMode: mode, material: p.material, stylized: p.stylized };
+  if (s) builtinStates.set(id, s);
+  return s;
 }
 function stateFor(mode: AppMode, option: string): SavedState | undefined {
   if (!option.startsWith(USER)) return builtinState(mode, option);
   return userPresets.find((p) => p.appMode === mode && p.name === option.slice(USER.length));
 }
 function presetOptions(mode: AppMode): string[] {
-  const builtins: string[] = mode === 'planet' ? [...PLANET_PRESET_NAMES] : ['—', ...PRESET_NAMES];
+  const builtins: string[] = mode === 'planet' ? Object.keys(ALL_PLANETS) : ['—', ...PRESET_NAMES];
   return [...builtins, ...userPresets.filter((p) => p.appMode === mode).map((p) => USER + p.name)];
 }
 
@@ -316,10 +348,11 @@ function applyState(s: SavedState, opt: { instant?: boolean; thumbnail?: boolean
   }
   Object.assign(matParams, sanitize(MATERIAL_DEFAULTS, s.material));
   Object.assign(styleParams, sanitize(STYLIZED_DEFAULTS, s.stylized, { mode: MATERIAL_MODES }));
-  if (s.light) Object.assign(lightParams, sanitize(LIGHT_DEFAULTS, s.light, { toneMapping: TONE_MAPPINGS }));
-  else if (opt.thumbnail) Object.assign(lightParams, modeLight(s.appMode)); // same light for every thumbnail
+  if (s.light) Object.assign(lightParams, sanitize(modeLight(s.appMode), s.light, { toneMapping: TONE_MAPPINGS }));
+  else if (opt.thumbnail || presetLight) Object.assign(lightParams, modeLight(s.appMode)); // same light for every thumbnail
+  if (!opt.thumbnail) presetLight = !!s.light;
   if (s.appMode === 'planet') {
-    Object.assign(planetParams, sanitize(PLANET_DEFAULTS, s.planet));
+    Object.assign(planetParams, sanitize(PLANET_DEFAULTS, s.planet, { attach: ATTACHMENTS }));
     ensureStarGeometry();
     const shape = PLANET_SHAPES.find((x) => x === s.planetShape);
     if (shape) {
@@ -356,6 +389,7 @@ const presetValue = () => (isPlanet() ? planetPresetParams.planetPreset : preset
 const onPreset = () => {
   const s = stateFor(sceneParams.appMode, presetValue());
   if (s) applyState(s);
+  gallery.select(s);
 };
 const materialPresetRow = ui.select('Preset', presetParams, 'preset', presetOptions('material'), onPreset);
 const planetPresetRow = ui.select('Planet Preset', planetPresetParams, 'planetPreset', presetOptions('planet'), onPreset);
@@ -368,6 +402,8 @@ function selectPreset(option: string) {
   ui.setOptions(materialPresetRow, presetOptions('material'));
   ui.setOptions(planetPresetRow, presetOptions('planet'));
   ui.refresh();
+  showGallery(); // user presets may have changed; cached thumbnails are reused
+  gallery.select(stateFor(sceneParams.appMode, option));
 }
 const flash = (b: HTMLButtonElement, text: string) => {
   const old = b.textContent;
@@ -427,7 +463,7 @@ ui.buttons('Presets', 'presetTools', [
   },
 ]);
 ui.buttons('View', 'presetView', [
-  { text: 'Gallery', onClick: () => openGallery() },
+  { text: 'Gallery', onClick: () => gallery.setFull(true) },
   {
     text: 'Copy name',
     onClick: (b) => {
@@ -439,6 +475,9 @@ ui.buttons('View', 'presetView', [
     },
   },
 ]);
+
+// UE5 feasibility of the current settings; click for the notes. Updated by applyAttachments on every change.
+ueButton = ui.buttons('UE5', 'ueRating', [{ text: '', onClick: (b) => window.alert(b.title) }]).querySelector('button')!;
 
 // Fallback for pages where the Clipboard API is blocked (embedded or permission-restricted browsers).
 function copyWithTextarea(text: string): boolean {
@@ -458,7 +497,10 @@ ui.tab('Object');
 materialOnly.push(ui.section('Shape'));
 ui.select('Shape', sceneParams, 'shape', SHAPES, applyShape);
 planetOnly.push(ui.section('Planet Shape & Motion'));
-ui.select('Planet Shape', sceneParams, 'planetShape', PLANET_SHAPES, () => startMorph(shapeIndex(sceneParams.planetShape)));
+ui.select('Planet Shape', sceneParams, 'planetShape', PLANET_SHAPES, () => {
+  startMorph(shapeIndex(sceneParams.planetShape));
+  applyAttachments();
+});
 ui.range('Star Roundness', planetParams, 'starRoundness', RANGES.unit, () => {
   ensureStarGeometry();
   applyPlanetParams();
@@ -468,6 +510,22 @@ ui.range('Morph Cycle s', planetParams, 'morphCycleSeconds', RANGES.morphCycleSe
 ui.range('Axial Tilt°', planetParams, 'tiltDeg', RANGES.tiltDeg, applyPlanetParams);
 ui.range('Spin °/s', planetParams, 'spinDegPerSec', RANGES.degPerSec, applyPlanetParams);
 ui.range('Time Scale', planetParams, 'timeScale', RANGES.timeScale, applyPlanetParams);
+ui.range('Scale X', planetParams, 'scaleX', RANGES.scale, applyPlanetParams);
+ui.range('Scale Y', planetParams, 'scaleY', RANGES.scale, applyPlanetParams);
+ui.range('Scale Z', planetParams, 'scaleZ', RANGES.scale, applyPlanetParams);
+ui.range('Sway°', planetParams, 'swayDeg', RANGES.swayDeg, applyPlanetParams);
+ui.range('Breath', planetParams, 'breath', RANGES.unit, applyPlanetParams);
+
+planetOnly.push(ui.section('Attachment', false));
+ui.select('Attachment', planetParams, 'attach', ATTACHMENTS, applyPlanetParams);
+ui.range('Ear Size', planetParams, 'earSize', RANGES.earSize, applyPlanetParams);
+ui.range('Ear Spacing°', planetParams, 'earSpacingDeg', RANGES.earSpacingDeg, applyPlanetParams);
+ui.range('Ear Lean°', planetParams, 'earAngleDeg', RANGES.earAngleDeg, applyPlanetParams);
+ui.range('Ear Flat°', planetParams, 'earFlatDeg', RANGES.earFlatDeg, applyPlanetParams);
+ui.color('Accent Color', planetParams, 'accentColor', applyPlanetParams);
+ui.range('Collar', planetParams, 'collar', RANGES.toggle, applyPlanetParams);
+ui.color('Collar Color', planetParams, 'collarColor', applyPlanetParams);
+ui.range('Zzz', planetParams, 'zzz', RANGES.toggle, applyPlanetParams);
 
 planetOnly.push(ui.section('Hologram Scan'));
 ui.buttons('Scan', 'scanPlay', [{ text: 'Play scan', onClick: playScan }]);
@@ -493,6 +551,8 @@ ui.color('Shallow Color', planetParams, 'shallowColor', applyPlanetParams);
 ui.color('Low Color', planetParams, 'lowColor', applyPlanetParams);
 ui.color('Mid Color', planetParams, 'midColor', applyPlanetParams);
 ui.color('High Color', planetParams, 'highColor', applyPlanetParams);
+ui.range('Terrace', planetParams, 'terrace', RANGES.unit, applyPlanetParams);
+ui.range('Surface Emissive', planetParams, 'surfaceEmissive', RANGES.glowIntensity, applyPlanetParams);
 ui.range('Ocean Rough.', planetParams, 'oceanRoughness', RANGES.unit, applyPlanetParams);
 ui.range('Land Rough.', planetParams, 'landRoughness', RANGES.unit, applyPlanetParams);
 ui.range('Polar Cap', planetParams, 'polarCap', RANGES.unit, applyPlanetParams);
@@ -503,6 +563,7 @@ ui.range('Bands', planetParams, 'bands', RANGES.unit, applyPlanetParams);
 ui.range('Band Frequency', planetParams, 'bandFrequency', RANGES.bandFrequency, applyPlanetParams);
 ui.range('Band Turbulence', planetParams, 'bandTurbulence', RANGES.bandTurbulence, applyPlanetParams);
 ui.range('Band Speed °/s', planetParams, 'bandSpeedDegPerSec', RANGES.degPerSec, applyPlanetParams);
+ui.range('Band Twist', planetParams, 'bandTwist', RANGES.bandTwist, applyPlanetParams);
 ui.range('Marble', planetParams, 'marble', RANGES.unit, applyPlanetParams);
 ui.range('Marble Frequency', planetParams, 'marbleFrequency', RANGES.marbleFrequency, applyPlanetParams);
 
@@ -510,6 +571,26 @@ ui.section('Craters', false);
 ui.range('Craters', planetParams, 'craters', RANGES.unit, applyPlanetParams);
 ui.range('Crater Scale', planetParams, 'craterScale', RANGES.craterScale, applyPlanetParams);
 ui.range('Crater Density', planetParams, 'craterDensity', RANGES.unit, applyPlanetParams);
+
+ui.section('Cells (Voronoi)', false);
+ui.range('Cell Scale', planetParams, 'cellScale', RANGES.cellScale, applyPlanetParams);
+ui.range('Cell Cracks', planetParams, 'cellCracks', RANGES.unit, applyPlanetParams);
+ui.range('Crack Width', planetParams, 'cellCrackWidth', RANGES.cellCrackWidth, applyPlanetParams);
+ui.range('Cell Dots', planetParams, 'cellDots', RANGES.unit, applyPlanetParams);
+ui.range('Dot Size', planetParams, 'cellDotSize', RANGES.cellDotSize, applyPlanetParams);
+ui.range('Cell Facets', planetParams, 'cellFacets', RANGES.unit, applyPlanetParams);
+ui.color('Cell Color', planetParams, 'cellColor', applyPlanetParams);
+ui.range('Cell Glow', planetParams, 'cellGlow', RANGES.cellGlow, applyPlanetParams);
+ui.color('Cell Glow Color', planetParams, 'cellGlowColor', applyPlanetParams);
+
+ui.section('Face & Parcel', false);
+ui.range('Face', planetParams, 'face', RANGES.face, applyPlanetParams);
+ui.color('Face Color', planetParams, 'faceColor', applyPlanetParams);
+ui.range('Face Glow', planetParams, 'faceGlow', RANGES.cellGlow, applyPlanetParams);
+ui.range('Blush', planetParams, 'blush', RANGES.unit, applyPlanetParams);
+ui.color('Blush Color', planetParams, 'blushColor', applyPlanetParams);
+ui.range('Whiskers', planetParams, 'whiskers', RANGES.toggle, applyPlanetParams);
+ui.range('Parcel', planetParams, 'parcel', RANGES.unit, applyPlanetParams);
 
 ui.section('Bubble', false);
 ui.range('Bubble', planetParams, 'bubble', RANGES.unit, applyPlanetParams);
@@ -546,6 +627,12 @@ ui.range('Neon Intensity', planetParams, 'neonIntensity', RANGES.neonIntensity, 
 ui.range('Neon Seams', planetParams, 'neonSeams', RANGES.unit, applyPlanetParams);
 ui.range('Neon Contours', planetParams, 'neonContours', RANGES.neonContours, applyPlanetParams);
 ui.range('Neon Speed', planetParams, 'neonSpeed', RANGES.neonSpeed, applyPlanetParams);
+ui.range('Neon Grid', planetParams, 'neonGrid', RANGES.neonIntensity, applyPlanetParams);
+
+ui.section('Aurora', false);
+ui.range('Aurora Intensity', planetParams, 'auroraIntensity', RANGES.neonIntensity, applyPlanetParams);
+ui.color('Aurora Color', planetParams, 'auroraColor', applyPlanetParams);
+ui.color('Aurora Color B', planetParams, 'auroraColorB', applyPlanetParams);
 
 planetTabs.push(ui.tab('Space'));
 ui.section('Atmosphere');
@@ -629,6 +716,11 @@ ui.range('Normal Soften', styleParams, 'normalSoften', RANGES.unit, applyMateria
 ui.color('Gradient Color', styleParams, 'gradientColor', applyMaterial);
 ui.range('Gradient Strength', styleParams, 'gradientStrength', RANGES.unit, applyMaterial);
 
+stylizedSections.push(ui.section('Toon'));
+ui.range('Toonness', styleParams, 'toonness', RANGES.unit, applyMaterial);
+ui.range('Toon Steps', styleParams, 'toonSteps', RANGES.toonSteps, applyMaterial);
+ui.range('Toon Softness', styleParams, 'toonSoftness', RANGES.toonSoftness, applyMaterial);
+
 stylizedSections.push(ui.section('Shade & Terminator'));
 ui.color('Shade Color', styleParams, 'shadeColor', applyMaterial);
 ui.range('Shade Strength', styleParams, 'shadeStrength', RANGES.stylizeStrength, applyMaterial);
@@ -682,23 +774,25 @@ function updateFrame(cam: THREE.Camera) {
   cam.updateMatrixWorld();
   meshCenter.copy(localCenter).applyMatrix4(mesh.matrixWorld);
   sunDir.copy(sun.position).normalize();
-  updateStylizedView(styleUniforms, sunDir, meshCenter, cam);
+  updateStylizedView(styleUniforms, sunDir, meshCenter, cam, sun);
   updatePlanetView(planetUniforms, mesh, cam);
   const fade = isPlanet() ? smooth01(planetParams.scanProgress) : 1;
   updatePlanetFrame(atmosphere, ring, orbits, shield, mesh, cam, sunDir, sun, meshCenter, planetTime, fade);
+  attachments.update(planetTime, mesh.rotation.y, fade);
 }
 
 // --- Gallery: thumbnails rendered with the main renderer into a corner, then copied out ---
 const THUMB_PX = 168;
 const thumbCamera = new THREE.PerspectiveCamera(32, 1, 0.05, 200);
-let galleryBusy = false;
 let snapshot: {
   scene: typeof sceneParams; planet: typeof planetParams; mat: typeof matParams; style: typeof styleParams;
-  light: typeof lightParams; modes: Record<AppMode, ModeParams>; activeMode: AppMode; morph: typeof morph;
+  light: typeof lightParams; modes: Record<AppMode, ModeParams>; activeMode: AppMode; morph: typeof morph; scanPlaying: boolean;
 } | undefined;
 
 function renderThumbnail(state: SavedState): HTMLCanvasElement {
   applyState(state, { instant: true, thumbnail: true });
+  const yaw = mesh.rotation.y;
+  if (isPlanet() && planetParams.swayDeg > 0) mesh.rotation.y = 0; // a face looks at the thumbnail camera
   if (isPlanet()) thumbCamera.position.set(0, PLANET_VIEW.centerY + 1.6, 3.4);
   else thumbCamera.position.set(2.0, 1.5, 2.4);
   thumbCamera.lookAt(0, isPlanet() ? PLANET_VIEW.centerY : 0.55, 0);
@@ -707,6 +801,8 @@ function renderThumbnail(state: SavedState): HTMLCanvasElement {
   resolution.set(THUMB_PX, THUMB_PX);
   updateFrame(thumbCamera);
   const size = renderer.getSize(new THREE.Vector2());
+  const tooSmall = size.x < THUMB_PX || size.y < THUMB_PX; // hidden or collapsed viewport: borrow a thumbnail-sized buffer
+  if (tooSmall) renderer.setSize(THUMB_PX, THUMB_PX, false);
   renderer.setScissorTest(true);
   renderer.setViewport(0, 0, THUMB_PX, THUMB_PX);
   renderer.setScissor(0, 0, THUMB_PX, THUMB_PX);
@@ -718,19 +814,22 @@ function renderThumbnail(state: SavedState): HTMLCanvasElement {
   canvas.width = canvas.height = px;
   canvas.getContext('2d')!.drawImage(renderer.domElement, 0, renderer.domElement.height - px, px, px, 0, 0, px, px);
   renderer.setScissorTest(false);
+  if (tooSmall) renderer.setSize(size.x, size.y, false);
   renderer.setViewport(0, 0, size.x, size.y);
   resolution.copy(saved);
+  mesh.rotation.y = yaw;
   return canvas;
 }
 
-const gallery = createGallery<SavedState>(viewport, renderThumbnail, {
+const gallery = createGallery<SavedState>(document.getElementById('app')!, renderThumbnail, {
   begin() {
-    galleryBusy = true;
-    scanPlaying = false;
+    // Thumbnails render lazily, also while a scan plays in the viewport: keep it and resume it afterwards.
     snapshot = {
+      scanPlaying,
       scene: { ...sceneParams }, planet: { ...planetParams }, mat: { ...matParams }, style: { ...styleParams },
       light: { ...lightParams }, modes: structuredClone(modeParams), activeMode, morph: { ...morph },
     };
+    scanPlaying = false;
   },
   end() {
     const s = snapshot!;
@@ -746,7 +845,8 @@ const gallery = createGallery<SavedState>(viewport, renderThumbnail, {
     applyMorph();
     showModeControls();
     ui.refresh();
-    galleryBusy = false;
+    scanPlaying = s.scanPlaying;
+    if (!gallery.isFull()) drawFrame(); // the thumbnail used a corner of the canvas: repaint before the browser presents
   },
   pick(state) {
     applyState(state);
@@ -755,36 +855,54 @@ const gallery = createGallery<SavedState>(viewport, renderThumbnail, {
   },
 });
 
-function openGallery() {
-  const items = (mode: AppMode) =>
-    presetOptions(mode).filter((o) => o !== '—').map((o) => ({ name: o, state: stateFor(mode, o)! }));
-  gallery.open([
-    { title: 'Planet', items: items('planet') },
-    { title: 'Material', items: items('material') },
-  ]);
+/** Fills the gallery: planet presets under their group heading, user presets, then material presets. */
+function showGallery() {
+  const item = (mode: AppMode, option: string): GalleryItem<SavedState> => {
+    const state = stateFor(mode, option)!;
+    const rating = ueRating(
+      sanitize(MATERIAL_DEFAULTS, state.material), sanitize(STYLIZED_DEFAULTS, state.stylized, { mode: MATERIAL_MODES }),
+      mode === 'planet' ? sanitize(PLANET_DEFAULTS, state.planet, { attach: ATTACHMENTS }) : undefined, state.planetShape,
+    );
+    return { name: option, state, badge: ueBadge(rating) };
+  };
+  const groups = new Map<string, GalleryItem<SavedState>[]>();
+  const put = (title: string, it: GalleryItem<SavedState>) => groups.set(title, [...(groups.get(title) ?? []), it]);
+  for (const o of presetOptions('planet')) put(o.startsWith(USER) ? 'My Planets' : ALL_PLANETS[o].group ?? 'Planets', item('planet', o));
+  for (const o of presetOptions('material')) if (o !== '—') put(o.startsWith(USER) ? 'My Materials' : 'Material', item('material', o));
+  gallery.show([...groups].map(([title, items]) => ({ title, items })));
 }
 
 // --- Resize / loop ---
-new ResizeObserver(() => {
+const resize = () => {
   const { clientWidth: w, clientHeight: h } = viewport;
   renderer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   outline.material.uniforms.uResolution.value.set(w, h);
-}).observe(viewport);
+};
+new ResizeObserver(resize).observe(viewport);
+
+// The page opens on the full gallery. The thumbnails use the main canvas, so it needs its size first.
+gallery.setFull(true);
+resize();
+showGallery();
+gallery.select(stateFor('planet', PLANET_DEFAULT_PRESET));
 
 let last = 0;
 renderer.setAnimationLoop((t) => {
   const dt = Math.min((t - last) / 1000, 0.1); // clamp: no jump after a hidden tab
   last = t;
-  if (galleryBusy) return;
+  if (gallery.isFull()) return; // the full gallery covers the viewport: no frame needed
   if (viewHelper.animating) viewHelper.update(dt);
   controls.update(dt);
   if (isPlanet()) {
     const step = dt * planetParams.timeScale;
     planetTime += step;
     planetUniforms.uPlanetTime.value = planetTime;
-    mesh.rotation.y += planetParams.spinDegPerSec * DEG2RAD * step;
+    if (planetParams.swayDeg > 0) {
+      mesh.rotation.y = (PLANET_VIEW.faceYawDeg + Math.sin(planetTime * PLANET_VIEW.swaySpeed) * planetParams.swayDeg) * DEG2RAD;
+    } else mesh.rotation.y += planetParams.spinDegPerSec * DEG2RAD * step;
+    if (planetParams.breath > 0) applyScale(planetParams.breath * 0.04 * Math.sin(planetTime * 1.6));
     if (morph.t < 1) {
       morph.t = Math.min(1, morph.t + dt / Math.max(planetParams.morphSeconds, 1e-3));
       applyMorph();
@@ -803,8 +921,12 @@ renderer.setAnimationLoop((t) => {
       }
     }
   }
+  drawFrame();
+});
+
+function drawFrame() {
   updateFrame(camera);
   renderer.clear();
   renderer.render(scene, camera);
   viewHelper.render(renderer);
-});
+}

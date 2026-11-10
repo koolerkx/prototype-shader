@@ -9,7 +9,9 @@ This project aimed to test the shader effect before implement into UE5, this pro
 
 ## Scope
 - Build a Three.js material and shader sandbox: one page, local dev server, desktop browser.
-- Current surface: material modes `standard` (UE5 Default Lit) / `stylized` (PBR mixed with toon), shape switcher (sphere, cube, cylinder, cone, pyramid, torus), live debug panel, texture preview card, corner orientation gizmo, orbit and keyboard camera.
+- The page is gallery-first: it opens on the full preset gallery (planet mode), which then docks as a sidebar beside the viewport and the debug panel.
+- Current surface: app modes `planet` (one master planet material, shape morphing, attachment meshes) and `material` (basic shapes); material modes `standard` (UE5 Default Lit) / `stylized` (PBR mixed with toon); preset gallery with thumbnails, live debug panel, corner orientation gizmo, orbit camera.
+- Every preset carries a UE5 feasibility badge (`MI` / `SUB` / `EXTRA`) derived from the features it uses in `src/config/ueFeasibility.ts`. When you add a shader feature or an attachment, add its rule there.
 - Use procedural geometry and procedural shaders. `three` is the only runtime dependency.
 - Out of scope: external 3D or texture assets, audio, backend services, deployment, automated test suites, game mechanics.
 
