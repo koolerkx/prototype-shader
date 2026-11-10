@@ -115,11 +115,11 @@ const SURFACES: Record<string, Surface> = {
     material: { clearCoat: 0.3 },
   },
   'Moon Rock': {
-    toon: 0.6, shade: '#5a5a90', rim: '#e0e0ff', steps: 2, light: FRONT_LIGHT,
+    toon: 0.6, shade: '#5a5a90', rim: '#e0e0ff', steps: 2,
     planet: {
-      tiltDeg: 5, swayDeg: 20, seaLevel: 0, noiseScale: 1.5, detail: 3, bump: 1.5, lowColor: '#8c8ca0', midColor: '#a8a8b8',
+      seaLevel: 0, noiseScale: 1.5, detail: 3, bump: 1.5, heightAO: 1, lowColor: '#8c8ca0', midColor: '#a8a8b8',
       highColor: '#a8a8b8', landRoughness: 0.95, craters: 1, craterScale: 3, craterDensity: 0.5,
-      face: 1, faceColor: '#50506a', atmoColor: '#e0e0ff', atmoIntensity: 0.3,
+      atmoColor: '#e0e0ff', atmoIntensity: 0.3,
     },
     stylized: { rimWidth: 0.15, rimIntensity: 0.4 },
   },
@@ -190,14 +190,15 @@ const IDEAS: Record<string, PlanetPreset> = {
     material: { clearCoat: 1, clearCoatRoughness: 0.03, thinFilm: 0.7, thinFilmThicknessNm: 450 },
     stylized: look(0.4, '#5040a0', '#bf80ff', { rimIntensity: 0.9 }),
   },
+  // Opaque glossy shell with the galaxy marched inside it; real see-through glass is left out (see ueFeasibility).
   'Nebula Glass': {
     planet: {
-      tiltDeg: 40, seaLevel: 0, noiseScale: 1.5, detail: 3, warp: 1.5, flowSpeed: 0.08, marble: 1, marbleFrequency: 4, bump: 0,
-      lowColor: '#1a0d4a', midColor: '#ff59d9', highColor: '#59d9ff', surfaceEmissive: 1.4, bubble: 0.7, landRoughness: 0.03,
-      atmoColor: '#cc99ff', atmoIntensity: 0.8,
+      tiltDeg: 50, spinDegPerSec: 10, seaLevel: 0, detail: 1, bump: 0, heightAO: 0, lowColor: '#0d0826', midColor: '#0d0826',
+      highColor: '#0d0826', landRoughness: 0.04, nebula: 1.6, neonColor: '#ff59d9', neonColorB: '#59d9ff',
+      atmoColor: '#cc99ff', atmoIntensity: 0.9,
     },
     material: { clearCoat: 1, clearCoatRoughness: 0.02 },
-    stylized: look(0, '#ffffff', '#ccb3ff', { rimIntensity: 0.9, rimLightSide: 0 }),
+    stylized: look(0, '#ffffff', '#ccb3ff', { rimIntensity: 0.9, rimWidth: 0.3, rimLightSide: 0 }),
   },
   Hologram: {
     planet: {

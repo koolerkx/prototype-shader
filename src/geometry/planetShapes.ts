@@ -71,8 +71,25 @@ function radialDistance(shape: PlanetShapeName, x: number, y: number, z: number)
     }
     return t;
   }
-  // Rounded cube: the 6-norm unit ball. The atmosphere SDF uses the same surface.
-  if (shape === 'roundCube') return (PLANET_VIEW.roundCubeSize * R) / (x ** 6 + y ** 6 + z ** 6) ** (1 / 6);
+  // Rounded cube: where the ray from the centre leaves the rounded-box SDF (bisection). The atmosphere uses the same SDF.
+  if (shape === 'roundCube') {
+    const bevel = PLANET_VIEW.roundCubeBevel * R;
+    const half = PLANET_VIEW.roundCubeSize * R - bevel;
+    const inside = (t: number) => {
+      const qx = Math.abs(x * t) - half;
+      const qy = Math.abs(y * t) - half;
+      const qz = Math.abs(z * t) - half;
+      return Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qy, qz), 0) < bevel;
+    };
+    let lo = 0;
+    let hi = PLANET_VIEW.roundCubeSize * R * 2;
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2;
+      if (inside(mid)) lo = mid;
+      else hi = mid;
+    }
+    return lo;
+  }
   return R;
 }
 
@@ -218,5 +235,5 @@ export const SHAPE_EXTENT: Record<PlanetShapeName, number> = {
   icosahedron: R,
   torus: (PLANET_VIEW.torusMajor + PLANET_VIEW.torusTube) * R,
   starTorus: (PLANET_VIEW.starOuter + PLANET_VIEW.starTube) * R,
-  roundCube: (PLANET_VIEW.roundCubeSize * R * Math.sqrt(3)) / 3 ** (1 / 6), // corner
+  roundCube: ((PLANET_VIEW.roundCubeSize - PLANET_VIEW.roundCubeBevel) * Math.sqrt(3) + PLANET_VIEW.roundCubeBevel) * R, // corner
 };

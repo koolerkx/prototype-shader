@@ -3,7 +3,7 @@ import { DEG2RAD, PLANET_VIEW, type PLANET_DEFAULTS } from '../config/tuning';
 import { POLYHEDRA } from '../geometry/planetShapes';
 import {
   ATMOSPHERE_FRAGMENT, ATMOSPHERE_VERTEX, ORBIT_FRAGMENT, ORBIT_VERTEX, PLANET_ALBEDO, PLANET_ALPHA, PLANET_EMISSIVE,
-  PLANET_FILM, PLANET_METALNESS, PLANET_NORMAL, PLANET_ROUGHNESS, PLANET_UNIFORMS, PLANET_VERTEX, PLANET_VERTEX_PARS,
+  PLANET_AO, PLANET_FILM, PLANET_METALNESS, PLANET_NORMAL, PLANET_ROUGHNESS, PLANET_UNIFORMS, PLANET_VERTEX, PLANET_VERTEX_PARS,
   RING_FRAGMENT, RING_VERTEX, SHIELD_FRAGMENT, SHIELD_VERTEX,
 } from '../shaders/planet';
 import { after, replaceOnce } from './stylized';
@@ -94,6 +94,10 @@ const createUniforms = () => ({
   uBlush: { value: 0 },
   uBlushColor: { value: new THREE.Color() },
   uWhiskers: { value: 0 },
+  uHeightAO: { value: 0 },
+  uNebula: { value: 0 },
+  uPlanetCamObj: { value: new THREE.Vector3() }, // per frame
+  uRingShade: { value: new THREE.Vector3() }, // ring inner, outer, opacity
 });
 
 /** Chains onto the stylized patch; call after addStylizedLayer (it reads uSunDirView). uPlanet = 0 leaves it inert. */
@@ -115,6 +119,7 @@ export function addPlanetLayer(m: THREE.MeshPhysicalMaterial): PlanetUniforms {
     fs = after(fs, '#include <normal_fragment_maps>', PLANET_NORMAL);
     fs = after(fs, '#include <emissivemap_fragment>', PLANET_EMISSIVE);
     fs = after(fs, '#include <lights_physical_fragment>', PLANET_FILM);
+    fs = after(fs, '#include <aomap_fragment>', PLANET_AO);
     fs = after(fs, '#include <opaque_fragment>', PLANET_ALPHA);
     shader.fragmentShader = fs;
   };
@@ -131,6 +136,7 @@ export function applyPlanet(u: PlanetUniforms, p: PlanetParams): void {
   }
   u.uBandSpeed.value = p.bandSpeedDegPerSec * DEG2RAD;
   u.uCloudSpeed.value = p.cloudSpeedDegPerSec * DEG2RAD;
+  u.uRingShade.value.set(p.ringInner, Math.max(p.ringOuter, p.ringInner), p.ringOpacity);
 }
 
 // --- Atmosphere: raymarched through the planet SDF ---
@@ -260,10 +266,11 @@ export function applyRing(ring: Ring, p: PlanetParams): void {
   u.uSeed.value = p.seed;
 }
 
-/** Per-frame object-to-view rotation for the height normal. Call after the camera matrix is current. */
+/** Per-frame object-to-view rotation for the height normal, and the camera in object space. Call after the camera matrix is current. */
 export function updatePlanetView(u: PlanetUniforms, mesh: THREE.Object3D, camera: THREE.Camera): void {
   modelView.multiplyMatrices(camera.matrixWorldInverse, mesh.matrixWorld);
   u.uPlanetObjToView.value.getNormalMatrix(modelView);
+  u.uPlanetCamObj.value.setFromMatrixPosition(camera.matrixWorld).applyMatrix4(inverse.copy(mesh.matrixWorld).invert());
 }
 const modelView = new THREE.Matrix4();
 

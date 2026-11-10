@@ -36,6 +36,7 @@ uniform float uToonness;
 uniform float uToonSteps;
 uniform float uToonSoftness;
 uniform vec3 uSunRadiance;
+float styleAO = 1.0; // a surface layer may lower it (planet height); it dims the shade tint, like AO dims sky light
 `;
 
 // After <color_fragment>. UE: lerp(BaseColor, GradientColor, (1 - LocalY / BoundsY) * k) with ObjectLocalBounds.
@@ -69,7 +70,7 @@ reflectedLight.directDiffuse += directLight.color * mix( ssBackScatter, 1.0, ssI
 // After <lights_fragment_end>. UE: Emissive input, sun direction from an MPC; ignores cast shadows.
 export const STYLIZED_POST_LIGHTS = /* glsl */ `
 float styleNL = dot( styleN, uSunDirView );
-totalEmissiveRadiance += styleAlbedo * uShadeColor * ( uShadeStrength * ( 1.0 - saturate( styleNL ) ) * uStylize );
+totalEmissiveRadiance += styleAlbedo * uShadeColor * ( uShadeStrength * styleAO * ( 1.0 - saturate( styleNL ) ) * uStylize );
 // Toon diffuse: N·L cut into steps, dark side tinted by the shade colour, at the brightness of the Lambert term it replaces.
 if ( uToonness * uStylize > 0.0 ) {
 	float toonCuts = max( floor( uToonSteps + 0.5 ) - 1.0, 1.0 );
@@ -81,7 +82,7 @@ if ( uToonness * uStylize > 0.0 ) {
 		toonLit += smoothstep( cut - toonW, cut + toonW, styleNL );
 	}
 	toonLit /= toonCuts;
-	totalEmissiveRadiance += styleAlbedo * ( 1.0 - metalnessFactor ) * mix( uShadeColor, vec3( 1.0 ), toonLit )
+	totalEmissiveRadiance += styleAlbedo * ( 1.0 - metalnessFactor ) * mix( uShadeColor * styleAO, vec3( 1.0 ), toonLit )
 		* uSunRadiance * ( RECIPROCAL_PI * uToonness * uStylize );
 }
 float styleBand = 1.0 - smoothstep( 0.0, uTerminatorWidth, abs( styleNL ) );

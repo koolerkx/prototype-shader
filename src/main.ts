@@ -15,6 +15,7 @@ import { createPrimitive } from './geometry/primitives';
 import { createAttachments } from './materials/attachments';
 import { applyDefaultLit, createDefaultLit } from './materials/defaultLit';
 import { applyOutline, createOutline } from './materials/outline';
+import { bakeSkyEnvironment, createSky } from './materials/sky';
 import {
   addPlanetLayer, applyAtmosphere, applyOrbits, applyPlanet, applyRing, applyShield, createAtmosphere, createOrbits,
   createRing, createShield, setAtmosphereShape, updatePlanetFrame, updatePlanetView,
@@ -50,8 +51,12 @@ controls.update();
 
 // --- Lighting: sun (directional) + sky (IBL), like a default UE5 level ---
 const pmrem = new THREE.PMREMGenerator(renderer);
-scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+const roomEnv = pmrem.fromScene(new RoomEnvironment(), 0.04).texture; // material mode
 pmrem.dispose();
+// Planet mode: a space sky box behind the planet, also baked into the environment so glossy surfaces reflect it.
+const sky = createSky();
+const spaceEnv = bakeSkyEnvironment(renderer, sky);
+scene.add(sky);
 
 const sun = new THREE.DirectionalLight();
 sun.castShadow = true;
@@ -271,6 +276,8 @@ function applyPlanetParams() {
 function refreshScene() {
   const planet = isPlanet();
   grid.visible = axes.visible = ground.visible = !planet;
+  sky.visible = planet;
+  scene.environment = planet ? spaceEnv : roomEnv;
   renderer.setClearColor(planet ? PLANET_VIEW.spaceBackground : VIEW.background);
   if (!planet) mesh.rotation.set(0, 0, 0);
   ensureStarGeometry();
@@ -545,6 +552,7 @@ ui.range('Warp', planetParams, 'warp', RANGES.warp, applyPlanetParams);
 ui.range('Detail', planetParams, 'detail', RANGES.detail, applyPlanetParams);
 ui.range('Flow Speed', planetParams, 'flowSpeed', RANGES.flowSpeed, applyPlanetParams);
 ui.range('Height (Bump)', planetParams, 'bump', RANGES.bump, applyPlanetParams);
+ui.range('Height AO', planetParams, 'heightAO', RANGES.unit, applyPlanetParams);
 
 ui.section('Ocean & Land');
 ui.range('Sea Level', planetParams, 'seaLevel', RANGES.unit, applyPlanetParams);
@@ -630,6 +638,7 @@ ui.range('Neon Seams', planetParams, 'neonSeams', RANGES.unit, applyPlanetParams
 ui.range('Neon Contours', planetParams, 'neonContours', RANGES.neonContours, applyPlanetParams);
 ui.range('Neon Speed', planetParams, 'neonSpeed', RANGES.neonSpeed, applyPlanetParams);
 ui.range('Neon Grid', planetParams, 'neonGrid', RANGES.neonIntensity, applyPlanetParams);
+ui.range('Nebula', planetParams, 'nebula', RANGES.neonIntensity, applyPlanetParams);
 
 ui.section('Aurora', false);
 ui.range('Aurora Intensity', planetParams, 'auroraIntensity', RANGES.neonIntensity, applyPlanetParams);
@@ -778,6 +787,7 @@ function updateFrame(cam: THREE.Camera) {
   sunDir.copy(sun.position).normalize();
   updateStylizedView(styleUniforms, sunDir, meshCenter, cam, sun);
   updatePlanetView(planetUniforms, mesh, cam);
+  sky.material.uniforms.uTime.value = planetTime;
   const fade = isPlanet() ? smooth01(planetParams.scanProgress) : 1;
   updatePlanetFrame(atmosphere, ring, orbits, shield, mesh, cam, sunDir, sun, meshCenter, planetTime, fade);
   attachments.update(planetTime, mesh.rotation.y, fade);
@@ -794,7 +804,7 @@ let snapshot: {
 function renderThumbnail(state: SavedState): HTMLCanvasElement {
   applyState(state, { instant: true, thumbnail: true });
   const yaw = mesh.rotation.y;
-  if (isPlanet() && planetParams.swayDeg > 0) mesh.rotation.y = 0; // a face looks at the thumbnail camera
+  if (isPlanet()) mesh.rotation.y = planetParams.swayDeg > 0 ? 0 : 0.6; // a face looks at the thumbnail camera; the rest show a fixed side
   if (isPlanet()) thumbCamera.position.set(0, PLANET_VIEW.centerY + 1.6, 3.4);
   else thumbCamera.position.set(2.0, 1.5, 2.4);
   thumbCamera.lookAt(0, isPlanet() ? PLANET_VIEW.centerY : 0.55, 0);

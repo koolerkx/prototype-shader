@@ -56,9 +56,11 @@ export function createAttachments(style: StylizedUniforms) {
 
   function catEars(p: PlanetParams, mat: DefaultLitParams) {
     const rad = new THREE.Vector3(p.scaleX, p.scaleY, p.scaleZ).multiplyScalar(R); // ellipsoid radii
-    const body = lit(mat, p.lowColor, { roughness: p.landRoughness });
-    const glow = p.faceGlow > 0 ? { emissiveColor: p.accentColor, emissiveIntensity: 1.5 } : {};
-    const inner = lit(mat, p.accentColor, { roughness: p.landRoughness, ...glow });
+    // One cone per ear. The inner-ear colour is painted on its front by vertex colour (UE: a mask on the local normal).
+    const ear = lit(mat, '#ffffff', { roughness: p.landRoughness });
+    ear.vertexColors = true;
+    const bodyColor = new THREE.Color(p.lowColor);
+    const innerColor = new THREE.Color(p.accentColor);
     const h = 0.66 * p.earSize * R;
     const r = 0.42 * p.earSize * R;
     const a = p.earSpacingDeg * DEG2RAD;
@@ -69,13 +71,17 @@ export function createAttachments(style: StylizedUniforms) {
       const n = sp.clone().divide(rad).divide(rad).normalize();
       const lean = Math.atan2(n.x, n.y) + sg * p.earAngleDeg * DEG2RAD;
       const axis = new THREE.Vector3(Math.sin(lean), Math.cos(lean), 0).applyAxisAngle(X, -p.earFlatDeg * DEG2RAD);
-      const ear = new THREE.Group();
-      ear.quaternion.setFromUnitVectors(Y, axis);
-      ear.position.copy(sp).addScaledVector(n, -0.07 * R).addScaledVector(axis, h * 0.4);
-      add(ear, new THREE.ConeGeometry(r, h, 32), body);
-      // Inner ear: a second, smaller cone pushed forward until its front shows through the outer one.
-      add(ear, new THREE.ConeGeometry(r * 0.7, h * 0.85, 32), inner).position.set(0, -h * 0.075, r * 0.34);
-      group.add(ear);
+      const geometry = new THREE.ConeGeometry(r, h, 48);
+      const normals = geometry.getAttribute('normal');
+      const colors = new Float32Array(normals.count * 3);
+      const c = new THREE.Color();
+      for (let i = 0; i < normals.count; i++) {
+        c.copy(bodyColor).lerp(innerColor, THREE.MathUtils.smoothstep(normals.getZ(i), 0.55, 0.8)).toArray(colors, i * 3);
+      }
+      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      const cone = add(group, geometry, ear);
+      cone.quaternion.setFromUnitVectors(Y, axis);
+      cone.position.copy(sp).addScaledVector(n, -0.07 * R).addScaledVector(axis, h * 0.4);
     }
 
     if (p.collar > 0) {
@@ -168,26 +174,31 @@ export function createAttachments(style: StylizedUniforms) {
     };
     const curve = new THREE.CatmullRomCurve3(Array.from({ length: 61 }, (_, i) => point(i / 60)));
     const SEG = 120;
-    const RAD = 8;
-    // A unit tube, then each ring is scaled about its centre: thin at the head, wide at the tail.
-    const geometry = new THREE.TubeGeometry(curve, SEG, 1, RAD, false);
-    const pos = geometry.getAttribute('position');
-    const c = new THREE.Vector3();
-    const v = new THREE.Vector3();
-    for (let i = 0; i <= SEG; i++) {
-      curve.getPointAt(i / SEG, c);
-      const w = (0.02 + (0.05 * i) / SEG) * R;
-      for (let j = 0; j <= RAD; j++) {
-        const k = i * (RAD + 1) + j;
-        v.fromBufferAttribute(pos, k).sub(c).multiplyScalar(w).add(c);
-        pos.setXYZ(k, v.x, v.y, v.z);
+    const RAD = 10;
+    /** A unit tube whose rings are scaled about their centre: thin at the head, wide at the tail. */
+    const ribbon = (width: number) => {
+      const geometry = new THREE.TubeGeometry(curve, SEG, 1, RAD, false);
+      const pos = geometry.getAttribute('position');
+      const c = new THREE.Vector3();
+      const v = new THREE.Vector3();
+      for (let i = 0; i <= SEG; i++) {
+        curve.getPointAt(i / SEG, c);
+        const w = (0.03 + (0.07 * i) / SEG) * R * width;
+        for (let j = 0; j <= RAD; j++) {
+          const k = i * (RAD + 1) + j;
+          v.fromBufferAttribute(pos, k).sub(c).multiplyScalar(w).add(c);
+          pos.setXYZ(k, v.x, v.y, v.z);
+        }
       }
-    }
-    const material = new THREE.ShaderMaterial({
+      return geometry;
+    };
+    const trail = (gain: number, soft: number) => new THREE.ShaderMaterial({
       uniforms: {
         uColorA: { value: new THREE.Color(p.neonColorB) },
         uColorB: { value: new THREE.Color(p.neonColor) },
         uTime: { value: 0 },
+        uGain: { value: gain },
+        uSoft: { value: soft },
       },
       vertexShader: TRAIL_VERTEX,
       fragmentShader: TRAIL_FRAGMENT,
@@ -195,22 +206,29 @@ export function createAttachments(style: StylizedUniforms) {
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     });
-    add(group, geometry, material);
+    const core = trail(1.6, 1);
+    const halo = trail(0.4, 3); // ponytail: a wide dim copy stands in for Bloom, which this sandbox does not have
+    add(group, ribbon(1), core);
+    add(group, ribbon(2.8), halo);
 
     // Tail fluke: two flat lobes at the end of the ribbon.
     const end = point(1);
     const fluke = new THREE.Group();
     fluke.position.copy(end);
     fluke.quaternion.setFromUnitVectors(Z, end.clone().sub(point(0.97)).normalize());
-    const flukeMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color(p.neonColor).multiplyScalar(1.5) });
+    const flukeMaterial = new THREE.MeshBasicMaterial({
+      color: p.neonColor, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending,
+    });
     for (const sg of [1, -1]) {
       const lobe = add(fluke, new THREE.SphereGeometry(1, 16, 12), flukeMaterial);
-      lobe.scale.set(0.07 * R, 0.025 * R, 0.17 * R);
-      lobe.position.set(sg * 0.1 * R, 0, 0.06 * R);
+      lobe.scale.set(0.1 * R, 0.035 * R, 0.24 * R);
+      lobe.position.set(sg * 0.14 * R, 0, 0.1 * R);
       lobe.rotation.y = sg * 0.45;
     }
     group.add(fluke);
-    tick = (time) => (material.uniforms.uTime.value = time);
+    tick = (time) => {
+      core.uniforms.uTime.value = halo.uniforms.uTime.value = time;
+    };
   }
 
   return {

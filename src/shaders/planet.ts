@@ -156,6 +156,10 @@ uniform float uFaceGlow;
 uniform float uBlush;
 uniform vec3 uBlushColor;
 uniform float uWhiskers;
+uniform float uHeightAO;
+uniform float uNebula;
+uniform vec3 uPlanetCamObj; // camera in the planet's object space
+uniform vec3 uRingShade; // ring inner, outer (planet radii), opacity
 uniform float uScanProgress;
 uniform vec2 uScanRange;
 uniform vec3 uScanColor;
@@ -190,6 +194,14 @@ vec2 planetDot() { return vec2( uCellDotSize * mix( 0.7, 1.15, fract( planetCell
 // Face shapes on the xy plane of the unit direction.
 float planetEll( vec2 f, vec2 c, vec2 r, float aa ) { return 1.0 - smoothstep( 1.0 - aa, 1.0 + aa, length( ( f - c ) / r ) ); }
 float planetArc( vec2 f, vec2 c, float r, float w ) { return ( 1.0 - smoothstep( w * 0.6, w, abs( length( f - c ) - r ) ) ) * step( f.y, c.y ); }
+// Latitude / longitude lines at a unit direction, about 2 px wide and never thinner than 0.02 grid cells.
+float planetGridLines( vec3 d ) {
+	float la = asin( clamp( d.y, - 1.0, 1.0 ) ) / PI * 9.0;
+	float lo = atan( d.z, d.x ) / PI2 * 16.0;
+	float wa = max( fwidth( la ), 0.02 );
+	float wb = max( min( fwidth( lo ), 0.5 ), 0.02 ); // the atan seam sits on a grid line
+	return max( 1.0 - smoothstep( wa, wa * 2.2, abs( fract( la + 0.5 ) - 0.5 ) ), 1.0 - smoothstep( wb, wb * 2.2, abs( fract( lo + 0.5 ) - 0.5 ) ) );
+}
 float planetSeg( vec2 p, vec2 a, vec2 b ) { vec2 pa = p - a, ba = b - a; return length( pa - ba * clamp( dot( pa, ba ) / dot( ba, ba ), 0.0, 1.0 ) ); }
 
 // Surface height 0..1 at an object-space point (in planet radii). One function feeds both the colour pass and the
@@ -294,12 +306,20 @@ float planetRough = 1.0;
 float planetMetal = 0.0; // panel metallic mask
 float planetCity = 0.0;
 float planetFilm = 0.5; // thin-film thickness 0..1, follows the height
+float planetAO = 1.0; // from the height: cavities are occluded
 vec3 planetGlow = vec3( 0.0 );
 if ( uPlanet > 0.5 ) {
 	vec3 pos = vPlanetObj * uPlanetInvRadius;
 	vec3 n = normalize( vPlanetObjN );
 	float t = uPlanetTime;
 	vec3 p = pos * uNoiseScale + uSeed;
+
+	// View ray through the planet, object space in planet radii: the chord to the far side of the unit sphere.
+	// Used by the looks that show their inside (hologram back lines, nebula).
+	vec3 viewRay = normalize( pos - uPlanetCamObj * uPlanetInvRadius );
+	float rayB = dot( pos, viewRay );
+	float rayDisc = rayB * rayB - dot( pos, pos ) + 1.0;
+	float raySpan = rayDisc > 0.0 ? - rayB + sqrt( rayDisc ) : 0.0;
 
 	// Hologram scan: everything above the front is cut away (UE: Masked, OpacityMask from object height).
 	float scanBand = 0.0;
@@ -397,15 +417,30 @@ if ( uPlanet > 0.5 ) {
 		planetGlow += neonCol * ( uNeonIntensity * saturate( neon ) * ( 1.0 - ice ) );
 	}
 
-	// Hologram globe: latitude / longitude lines about 1.5 px wide.
+	// Hologram globe: grid lines on the front, dimmer ones on the far side, screen-space scan lines.
 	if ( uNeonGrid > 0.0 ) {
-		vec3 d = normalize( pos );
-		float la = asin( clamp( d.y, - 1.0, 1.0 ) ) / PI * 9.0;
-		float lo = atan( d.z, d.x ) / PI2 * 16.0;
-		float wa = fwidth( la ) + 1e-4;
-		float wb = min( fwidth( lo ), 0.5 ) + 1e-4; // the atan seam sits on a grid line
-		float lines = max( 1.0 - smoothstep( wa * 0.8, wa * 2.0, abs( fract( la + 0.5 ) - 0.5 ) ), 1.0 - smoothstep( wb * 0.8, wb * 2.0, abs( fract( lo + 0.5 ) - 0.5 ) ) );
-		planetGlow += uNeonColor * ( uNeonGrid * lines );
+		float lines = planetGridLines( normalize( pos ) ) + 0.3 * planetGridLines( normalize( pos + viewRay * raySpan ) );
+		float scan = 0.75 + 0.25 * sin( gl_FragCoord.y * 1.2 - t * 8.0 );
+		planetGlow += uNeonColor * ( uNeonGrid * lines * scan );
+	}
+
+	// Nebula in glass: a spiral galaxy marched through the inside of the sphere, in the planet's equator plane.
+	// UE: Custom node with the same 12-step loop; the shell stays an opaque glossy surface, so nothing sorts.
+	if ( uNebula > 0.0 ) {
+		vec3 acc = vec3( 0.0 );
+		float through = 1.0;
+		for ( int i = 0; i < 12; i ++ ) {
+			vec3 pl = pos + viewRay * ( raySpan * ( float( i ) + 0.5 ) / 12.0 );
+			float r = length( pl.xz );
+			float arm = 0.5 + 0.5 * sin( atan( pl.z, pl.x ) * 2.0 - r * 7.0 );
+			float fl = planetNoise( pl * 3.0 + vec3( 0.0, t * 0.08, 0.0 ) ) * 0.5 + 0.5;
+			float density = pow( arm, 3.0 ) * smoothstep( 1.0, 0.15, r ) * exp( - abs( pl.y ) * ( 4.5 - r * 2.0 ) ) * ( 0.35 + fl );
+			float core = exp( - length( pl ) * 6.0 ) * 2.5;
+			vec3 tint = mix( uNeonColor, uNeonColorB, smoothstep( 0.35, 0.75, fl + r * 0.3 ) );
+			acc += ( tint * ( density * 4.0 ) + vec3( 1.0, 0.85, 1.0 ) * ( core * 0.5 ) ) * ( raySpan / 12.0 * through );
+			through *= 0.96;
+		}
+		planetGlow += acc * uNebula;
 	}
 
 	// Aurora: two curtains turning in opposite directions inside a belt around each pole.
@@ -493,6 +528,16 @@ if ( uPlanet > 0.5 ) {
 		}
 	}
 
+	// Ring shadow on the planet: the ring lies in the equator plane, so the shadow is a ray-plane test towards the sun.
+	// UE: the ring mesh (Masked) casts a real shadow; this term is not needed there.
+	if ( uRingShade.z > 0.0 ) {
+		vec3 sunObj = normalize( transpose( uPlanetObjToView ) * uSunDirView );
+		float ts = - pos.y / ( abs( sunObj.y ) > 1e-3 ? sunObj.y : 1e-3 );
+		float rq = length( pos + sunObj * ts );
+		float band = smoothstep( uRingShade.x, uRingShade.x + 0.04, rq ) * ( 1.0 - smoothstep( uRingShade.y - 0.04, uRingShade.y, rq ) ) * step( 0.0, ts );
+		col *= 1.0 - 0.7 * uRingShade.z * band;
+	}
+
 	// Unlit surface (star): the colour is emitted and the lit Base Color goes black.
 	if ( uSurfaceEmissive > 0.0 ) {
 		planetGlow += col * uSurfaceEmissive;
@@ -507,6 +552,9 @@ if ( uPlanet > 0.5 ) {
 		col = mix( col, uScanColor * 0.15, scanBand );
 		planetGlow += uScanColor * ( scanBand * ( 1.0 + 3.0 * grid ) + 4.0 * pow( scanBand, 8.0 ) );
 	}
+	// Ambient occlusion from the relief height (UE: Ambient Occlusion input from the same height map).
+	planetAO = mix( 1.0, saturate( 0.3 + planetReliefH * 1.3 ), uHeightAO * planetRelief );
+	styleAO = planetAO;
 	diffuseColor.rgb = col;
 }
 `;
@@ -519,6 +567,14 @@ if ( uPlanet > 0.5 ) roughnessFactor = planetRough;
 // After <metalnessmap_fragment>: panels take their own metallic; the rest keeps the Material slider.
 export const PLANET_METALNESS = /* glsl */ `
 if ( uPlanet > 0.5 ) metalnessFactor = mix( metalnessFactor, uPanelMetallic, planetMetal );
+`;
+
+// After <aomap_fragment>: the same occlusion three applies for an AO map.
+export const PLANET_AO = /* glsl */ `
+if ( uPlanet > 0.5 ) {
+	reflectedLight.indirectDiffuse *= planetAO;
+	reflectedLight.indirectSpecular *= planetAO;
+}
 `;
 
 // After <normal_fragment_maps>, before the stylized normal soften. Tilts the normal against the height gradient;
@@ -599,7 +655,8 @@ const float SDF_TORUS_TUBE = ${k(PLANET_VIEW.torusTube * R)};
 const float SDF_STAR_OUTER = ${k(PLANET_VIEW.starOuter * R)};
 const float SDF_STAR_INNER = ${k(PLANET_VIEW.starOuter * PLANET_VIEW.starInner * R)};
 const float SDF_STAR_TUBE = ${k(PLANET_VIEW.starTube * R)};
-const float SDF_CUBE = ${k(PLANET_VIEW.roundCubeSize * R)};
+const float SDF_CUBE = ${k((PLANET_VIEW.roundCubeSize - PLANET_VIEW.roundCubeBevel) * R)}; // half size before the bevel
+const float SDF_CUBE_R = ${k(PLANET_VIEW.roundCubeBevel * R)};
 
 float sdfStarRadius( float u ) {
 	const float seg = PI / 5.0;
@@ -633,9 +690,9 @@ float sdfShape( int id, vec3 p ) {
 		if ( u < 0.0 ) u += PI2;
 		return length( vec2( length( p.xz ) - sdfStarRadius( u ), p.y ) ) - SDF_STAR_TUBE; // approximate near the tips
 	}
-	if ( id == 6 ) { // rounded cube: 6-norm, approximate
-		vec3 q = p * p * p;
-		return pow( dot( q, q ), 1.0 / 6.0 ) - SDF_CUBE;
+	if ( id == 6 ) { // rounded cube
+		vec3 q = abs( p ) - SDF_CUBE;
+		return length( max( q, 0.0 ) ) + min( max( q.x, max( q.y, q.z ) ), 0.0 ) - SDF_CUBE_R;
 	}
 	return length( p ) - SDF_R;
 }

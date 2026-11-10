@@ -138,6 +138,12 @@ export const ATTACH = {
   zzzColor: '#bfe0ff',
 };
 
+// Space sky box behind every planet (planet mode only).
+export const SKY = {
+  radius: 90, // world units; inside the camera far plane
+  brightness: 1,
+};
+
 // Order = morph target index; the atmosphere SDF uses the same ids.
 export const PLANET_SHAPES = ['sphere', 'ellipsoid', 'dodecahedron', 'icosahedron', 'torus', 'starTorus', 'roundCube'] as const;
 export type PlanetShapeName = (typeof PLANET_SHAPES)[number];
@@ -152,6 +158,7 @@ export const PLANET_VIEW = {
   starInner: 0.5, // valley radius / tip radius
   starTube: 0.18,
   roundCubeSize: 0.75, // face distance of the rounded cube, in planet radii
+  roundCubeBevel: 0.19, // edge radius, in planet radii
   faceYawDeg: 40, // sway centre: turns the face (object +Z) towards the default camera
   swaySpeed: 0.6, // rad/s of the sway sine
   gridU: 256, // morph grid: every planet shape is the same UV grid, so any shape can morph into any other
@@ -160,7 +167,7 @@ export const PLANET_VIEW = {
   ringMax: 3.2,
   orbitTube: 0.004, // orbit line thickness, world units
   spaceBackground: '#0b0d1a',
-  skyIntensity: 0.03, // the room IBL would light the night side; space has almost no sky light
+  skyIntensity: 1, // planet mode is lit by the baked space sky, which is dark: the night side stays dark
 };
 
 // Neutral base; every planet preset starts from these values.
@@ -189,6 +196,7 @@ export const PLANET_DEFAULTS = {
   detail: 5, // fbm octaves
   flowSpeed: 0.03, // domain-warp animation; high values make the surface flow like a liquid
   bump: 1, // height relief for the normal; 1 = 5% of the radius
+  heightAO: 0.75, // ambient occlusion from the same height: low areas take less sky light and less shade tint
   // Ocean and land: height ramp below / above sea level
   seaLevel: 0.5, // 0 = no ocean
   deepColor: '#24407a',
@@ -256,6 +264,7 @@ export const PLANET_DEFAULTS = {
   neonContours: 0, // contour lines over the full height range; 0 = off
   neonSpeed: 2,
   neonGrid: 0, // emissive latitude / longitude lines in Neon Color (hologram globe)
+  nebula: 0, // emissive spiral galaxy marched inside the sphere, Neon Color to Neon Color B (glass marble)
   // Aurora: two counter-rotating emissive curtains around both poles
   auroraIntensity: 0,
   auroraColor: '#40ff90',

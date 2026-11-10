@@ -36,12 +36,16 @@ void main() {
 }
 `;
 
-// --- Whale trail: additive ribbon, colour gradient along its length with bright bands flowing to the tail. ---
+// --- Whale trail: additive ribbon, colour gradient along its length with bright bands flowing to the tail.
+// It fades towards its silhouette, so a wide dim copy of it reads as a glow. ---
 export const TRAIL_VERTEX = /* glsl */ `
 varying float vAlong;
+varying float vFacing;
 void main() {
 	vAlong = uv.x;
-	gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+	vec4 mv = modelViewMatrix * vec4( position, 1.0 );
+	vFacing = abs( dot( normalize( normalMatrix * normal ), normalize( - mv.xyz ) ) );
+	gl_Position = projectionMatrix * mv;
 }
 `;
 
@@ -50,11 +54,14 @@ export const TRAIL_FRAGMENT = /* glsl */ `
 uniform vec3 uColorA; // head
 uniform vec3 uColorB; // tail
 uniform float uTime;
+uniform float uGain;
+uniform float uSoft; // falloff towards the silhouette
 varying float vAlong;
+varying float vFacing;
 void main() {
 	vec3 col = mix( mix( uColorA, vec3( 0.72, 0.5, 1.0 ), smoothstep( 0.0, 0.6, vAlong ) ), uColorB, smoothstep( 0.6, 1.0, vAlong ) );
 	float flow = 0.6 + 0.4 * sin( vAlong * 24.0 - uTime * 4.0 );
-	gl_FragColor = vec4( col * ( flow * 1.5 ), 1.0 );
+	gl_FragColor = vec4( col * ( flow * uGain * pow( vFacing, uSoft ) ), 1.0 );
 	#include <tonemapping_fragment>
 	#include <colorspace_fragment>
 }

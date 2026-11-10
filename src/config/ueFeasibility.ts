@@ -44,6 +44,7 @@ export function ueRating(
     if (planet.bubble > 0 && (material.clearCoat > 0 || (planet.neonGrid <= 0 && planet.surfaceEmissive <= 0))) {
       extra.push('Lit Translucent：光照解像度低、沒有 Clear Coat 高光、有排序問題；需要 Surface ForwardShading 或改用 Masked + Dither。');
     } else if (planet.bubble > 0) info.push('Unlit Translucent：注意 Overdraw 及排序。');
+    if (planet.nebula > 0) extra.push('星雲假體積：Custom (HLSL) 節點內的 12 步迴圈；外殼保持 Opaque，沒有排序問題，但不是真正透明。');
     if (planet.attach === 'catEars') extra.push('貓耳：額外 Cone 組件，需要 Blueprint 按橢球表面定位（不可繼承非均等縮放）。');
     if (planet.attach === 'islands') extra.push('浮島：Instanced Static Mesh + Blueprint 公轉。');
     if (planet.attach === 'vortex') extra.push('漩渦：額外 Plane + Unlit 材質。');
