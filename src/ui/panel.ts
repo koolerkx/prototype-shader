@@ -3,18 +3,57 @@ import { TOOLTIPS } from './tooltips';
 
 type KeysOf<T, V> = { [K in keyof T]: T[K] extends V ? K : never }[keyof T];
 
+type Tab = { button: HTMLButtonElement; page: HTMLElement };
+
 /**
  * Sidebar controls. Each control writes into `obj[key]`, calls `onChange`, and returns its element.
- * Controls go into the most recent section. Hovering a row shows `TOOLTIPS[key]`.
+ * Layout: a sticky header (controls added before the first tab, a search box, the tab bar), then one page per tab.
+ * Controls go into the most recent section, else the current page or the header. Hovering a row shows `TOOLTIPS[key]`.
  */
 export function createPanel(root: HTMLElement) {
-  let parent: HTMLElement = root;
+  const head = div('panel-head');
+  const headRows = div('');
+  const search = document.createElement('input');
+  search.type = 'search';
+  search.placeholder = 'Search label or 說明…';
+  const tabBar = div('tabs');
+  const body = div('panel-body');
+  head.append(headRows, search, tabBar);
+  root.append(head, body);
+
+  let page: HTMLElement = headRows;
+  let parent: HTMLElement = headRows;
   const syncs: (() => void)[] = [];
+  const tabs: Tab[] = [];
+  let active: Tab | undefined;
+
+  const select = (t: Tab) => {
+    active = t;
+    for (const x of tabs) {
+      x.page.classList.toggle('inactive', x !== t);
+      x.button.classList.toggle('active', x === t);
+    }
+  };
+
+  // Search shows matching rows from every tab of the current mode; an empty query restores the tab view.
+  search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    root.classList.toggle('searching', q !== '');
+    for (const r of body.querySelectorAll<HTMLElement>('.row')) {
+      r.classList.toggle('no-match', q !== '' && !r.dataset.search!.includes(q));
+    }
+    for (const d of body.querySelectorAll('details')) {
+      const any = [...d.querySelectorAll<HTMLElement>('.row')].some((r) => !r.classList.contains('no-match'));
+      d.classList.toggle('no-match', q !== '' && !any);
+      if (q !== '') d.open = true;
+    }
+  });
 
   const row = (label: string, key: PropertyKey) => {
     const el = document.createElement('div');
     el.className = 'row';
     el.title = TOOLTIPS[String(key)] ?? label;
+    el.dataset.search = `${label} ${el.title}`.toLowerCase();
     const l = document.createElement('label');
     l.textContent = label;
     el.append(l);
@@ -28,6 +67,31 @@ export function createPanel(root: HTMLElement) {
   };
 
   return {
+    /** New tab page; following sections go into it. The first tab starts active. */
+    tab(name: string): Tab {
+      const t: Tab = { button: document.createElement('button'), page: div('tab-page') };
+      t.button.type = 'button';
+      t.button.textContent = name;
+      t.button.addEventListener('click', () => select(t));
+      tabBar.append(t.button);
+      body.append(t.page);
+      tabs.push(t);
+      page = parent = t.page;
+      if (active) t.page.classList.add('inactive');
+      else select(t);
+      return t;
+    },
+
+    /** Shows or hides a tab for the current mode; moves to the first visible tab if the active one is hidden. */
+    showTab(t: Tab, visible: boolean) {
+      t.button.hidden = !visible;
+      t.page.classList.toggle('off-mode', !visible);
+      if (!visible && active === t) {
+        const first = tabs.find((x) => !x.button.hidden);
+        if (first) select(first);
+      }
+    },
+
     /** Collapsible category; following controls go inside it. */
     section(title: string, open = true) {
       const d = document.createElement('details');
@@ -35,7 +99,7 @@ export function createPanel(root: HTMLElement) {
       const s = document.createElement('summary');
       s.textContent = title;
       d.append(s);
-      root.append(d);
+      page.append(d);
       parent = d;
       return d;
     },
@@ -117,4 +181,10 @@ export function createPanel(root: HTMLElement) {
       return el;
     },
   };
+}
+
+function div(className: string): HTMLDivElement {
+  const el = document.createElement('div');
+  el.className = className;
+  return el;
 }
