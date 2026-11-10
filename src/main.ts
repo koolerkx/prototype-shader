@@ -857,6 +857,8 @@ const gallery = createGallery<SavedState>(document.getElementById('app')!, rende
   },
 });
 
+const GALLERY_ORDER = ['Planets', 'Cat-Ear v1.0', 'Pure Toon v1.0', 'Stylized PBR v2.0', 'New Ideas v3.0', 'Material'];
+
 /** Fills the gallery: planet presets under their group heading, user presets, then material presets. */
 function showGallery() {
   const item = (mode: AppMode, option: string): GalleryItem<SavedState> => {
@@ -871,7 +873,9 @@ function showGallery() {
   const put = (title: string, it: GalleryItem<SavedState>) => groups.set(title, [...(groups.get(title) ?? []), it]);
   for (const o of presetOptions('planet')) put(o.startsWith(USER) ? 'My Planets' : ALL_PLANETS[o].group ?? 'Planets', item('planet', o));
   for (const o of presetOptions('material')) if (o !== '—') put(o.startsWith(USER) ? 'My Materials' : 'Material', item('material', o));
-  gallery.show([...groups].map(([title, items]) => ({ title, items })));
+  // Listed groups first, in this order; anything else (user presets) after them.
+  const rank = (title: string) => (GALLERY_ORDER.indexOf(title) + 1) || GALLERY_ORDER.length + 1;
+  gallery.show([...groups].map(([title, items]) => ({ title, items })).sort((x, y) => rank(x.title) - rank(y.title)));
 }
 
 // --- Resize / loop ---
