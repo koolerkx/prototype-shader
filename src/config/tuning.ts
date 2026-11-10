@@ -197,9 +197,9 @@ export const PLANET_DEFAULTS = {
   scanOnSelect: 0, // 1 = the scan plays when this preset is selected (holograms); other planets appear at once
   // Terrain
   seed: 0,
-  noiseScale: 1.6,
+  noiseScale: 1.4,
   warp: 0.35,
-  detail: 5, // fbm octaves
+  detail: 2, // fbm octaves; low = big simple shapes, also for the band turbulence and the clouds
   flowSpeed: 0.03, // domain-warp animation; high values make the surface flow like a liquid
   bump: 1, // height relief for the normal; 1 = 5% of the radius
   heightAO: 0.75, // ambient occlusion from the same height: low areas take less sky light and less shade tint
@@ -228,6 +228,7 @@ export const PLANET_DEFAULTS = {
   cellCrackWidth: 0.05,
   cellDots: 0, // one domed dot per cell, Cell Color
   cellDotSize: 0.3, // dot radius, in cells
+  cellShape: 0, // what a dot is: 0 = round, 1 = star, 2 = heart
   cellFacets: 0, // flat tone and faux facet normal per cell (gem)
   cellColor: '#ffffff',
   cellGlow: 0, // emissive on the cell borders
@@ -284,6 +285,12 @@ export const PLANET_DEFAULTS = {
   blush: 0,
   blushColor: '#ff80ad',
   whiskers: 0,
+  blink: 0, // 1 = open eyes blink
+  // Toy look: moulded-plastic cues, all from the same height (off by default)
+  bevel: 0, // raised land on a flat sea, and a light strip on the upper edge of every tone cut
+  foam: 0, // white band on the waterline
+  cloudPuff: 0, // clouds get a shade tone and their own relief
+  sparkle: 0, // glitter flakes that flash with the view angle
   // Atmosphere shell (UE: translucent additive mesh)
   atmoColor: '#7fd8ff',
   atmoIntensity: 1,
@@ -332,17 +339,18 @@ export type PlanetPreset = Preset & {
   light?: Partial<typeof LIGHT_DEFAULTS>; // only where the look needs its own sun (faces)
 };
 // Planets are round, so the object-height gradient and spherical normal are off by default.
-export const PLANET_STYLE = { normalSoften: 0, gradientStrength: 0 };
+// No terminator band either: on a planet it reads as a red line along the day / night edge.
+export const PLANET_STYLE = { normalSoften: 0, gradientStrength: 0, terminatorIntensity: 0 };
 
 export const PLANET_PRESETS = {
   'Kawaii Terra': {
     planet: {
-      seaLevel: 0.52, deepColor: '#4a5cff', shallowColor: '#6fe3ff', lowColor: '#8fe08a', midColor: '#f7e08a',
+      terrace: 1, seaLevel: 0.52, deepColor: '#4a5cff', shallowColor: '#6fe3ff', lowColor: '#8fe08a', midColor: '#f7e08a',
       highColor: '#ff9ec7', oceanRoughness: 0.12, landRoughness: 0.7, polarCap: 0.18,
       noiseScale: 1.2, warp: 0.25, detail: 3, cloudCover: 0.4, atmoColor: '#7fd8ff', atmoIntensity: 1.2,
     },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#7b5cff', shadeStrength: 0.4, terminatorColor: '#ff8a9a', terminatorIntensity: 0.35,
+      ...PLANET_STYLE, shadeColor: '#7b5cff', shadeStrength: 0.4,
       rimColor: '#9fe8ff', rimIntensity: 0.5, rimWidth: 0.25, rimLightSide: 0.6,
     },
   },
@@ -355,7 +363,7 @@ export const PLANET_PRESETS = {
     },
     material: { fuzzAmount: 0.3, fuzzColor: '#ffffff', fuzzRoughness: 0.6 },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#9b7bff', shadeStrength: 0.45, terminatorColor: '#ff7aa8', terminatorIntensity: 0.4,
+      ...PLANET_STYLE, shadeColor: '#9b7bff', shadeStrength: 0.45,
       rimColor: '#ffd6f0', rimIntensity: 0.4, rimLightSide: 0.5,
     },
   },
@@ -366,19 +374,19 @@ export const PLANET_PRESETS = {
       atmoColor: '#ff6a3a', atmoIntensity: 0.7,
     },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#ff4a6a', shadeStrength: 0.15, terminatorIntensity: 0,
+      ...PLANET_STYLE, shadeColor: '#ff4a6a', shadeStrength: 0.15,
       rimColor: '#ff9a5a', rimIntensity: 0.4, rimLightSide: -0.5,
     },
   },
   'Frost Crystal': {
     planet: {
-      seaLevel: 0.45, deepColor: '#2a3c8f', shallowColor: '#6fb8ff', lowColor: '#8fc4ff', midColor: '#c8e4ff',
+      terrace: 1, seaLevel: 0.45, deepColor: '#2a3c8f', shallowColor: '#6fb8ff', lowColor: '#8fc4ff', midColor: '#c8e4ff',
       highColor: '#ffffff', oceanRoughness: 0.05, landRoughness: 0.25, polarCap: 0.3, iceColor: '#ffffff',
       cloudCover: 0.2, cloudColor: '#e8f0ff', atmoColor: '#a8d8ff',
     },
     material: { clearCoat: 0.6, clearCoatRoughness: 0.05, thinFilm: 0.8, thinFilmThicknessNm: 500 },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#6b5cff', shadeStrength: 0.35, terminatorIntensity: 0,
+      ...PLANET_STYLE, shadeColor: '#6b5cff', shadeStrength: 0.35,
       rimColor: '#d6a8ff', rimIntensity: 0.8, rimWidth: 0.3, rimSoftness: 0.2,
     },
   },
@@ -392,8 +400,8 @@ export const PLANET_PRESETS = {
       orbitCount: 2, orbitColor: '#7fd8ff', orbitColorB: '#ffb35a', orbitIntensity: 0.8, orbitPulses: 1,
     },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#3a4aff', shadeStrength: 0.1, terminatorColor: '#ff7a4a', terminatorIntensity: 0.25,
-      terminatorWidth: 0.12, rimColor: '#7fd8ff', rimIntensity: 0.6, rimLightSide: 0.7,
+      ...PLANET_STYLE, shadeColor: '#3a4aff', shadeStrength: 0.1,
+      rimColor: '#7fd8ff', rimIntensity: 0.6, rimLightSide: 0.7,
     },
   },
   'Desert Dune': {
@@ -403,19 +411,19 @@ export const PLANET_PRESETS = {
       cloudCover: 0.1, atmoColor: '#ffb37a', atmoIntensity: 0.9,
     },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#8a5cff', shadeStrength: 0.35, terminatorColor: '#ff6a5a', terminatorIntensity: 0.3,
+      ...PLANET_STYLE, shadeColor: '#8a5cff', shadeStrength: 0.35,
       rimColor: '#ffd6a0', rimIntensity: 0.4, rimLightSide: 0.6,
     },
   },
   'Toxic Jelly': {
     planet: {
-      seaLevel: 0.55, deepColor: '#3a0f6b', shallowColor: '#a14bff', lowColor: '#6bff8a', midColor: '#c8ff4a',
+      terrace: 1, seaLevel: 0.55, deepColor: '#3a0f6b', shallowColor: '#a14bff', lowColor: '#6bff8a', midColor: '#c8ff4a',
       highColor: '#fff6a8', oceanRoughness: 0.05, landRoughness: 0.4, warp: 0.8, noiseScale: 1.3, cloudCover: 0.15, cloudColor: '#e6ffd6',
       glowColor: '#7dff6b', glowIntensity: 1.2, glowLevel: 0.4, glowPulse: 1, atmoColor: '#b06bff', atmoIntensity: 1.2,
     },
     material: { clearCoat: 0.8, clearCoatRoughness: 0.1, subsurfaceColor: '#1a5a2a', subsurfaceOpacity: 0.3 },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#7b2cff', shadeStrength: 0.4, terminatorColor: '#c8ff4a', terminatorIntensity: 0.3,
+      ...PLANET_STYLE, shadeColor: '#7b2cff', shadeStrength: 0.4,
       rimColor: '#d6a8ff', rimIntensity: 0.6, rimLightSide: 0.3,
     },
   },
@@ -430,7 +438,7 @@ export const PLANET_PRESETS = {
       orbitCount: 3, orbitColor: '#3ff0ff', orbitColorB: '#ff3fd8', orbitIntensity: 1.5, orbitPulses: 3,
     },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#3a1aff', shadeStrength: 0.3, terminatorColor: '#ff3f8a', terminatorIntensity: 0.3,
+      ...PLANET_STYLE, shadeColor: '#3a1aff', shadeStrength: 0.3,
       rimColor: '#3ff0ff', rimIntensity: 0.6, rimLightSide: -0.3,
     },
   },
@@ -445,8 +453,8 @@ export const PLANET_PRESETS = {
     },
     material: { clearCoat: 0.5, clearCoatRoughness: 0.1 },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#4a5aff', shadeStrength: 0.2, terminatorColor: '#ff9a6a', terminatorIntensity: 0.15,
-      terminatorWidth: 0.12, rimColor: '#9fe8ff', rimIntensity: 0.6, rimLightSide: -0.6,
+      ...PLANET_STYLE, shadeColor: '#4a5aff', shadeStrength: 0.2,
+      rimColor: '#9fe8ff', rimIntensity: 0.6, rimLightSide: -0.6,
     },
   },
   'Neon Synthwave': {
@@ -458,7 +466,7 @@ export const PLANET_PRESETS = {
     },
     material: { clearCoat: 0.8, clearCoatRoughness: 0.08 },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#5a1aff', shadeStrength: 0.4, terminatorColor: '#ff3fa8', terminatorIntensity: 0.3,
+      ...PLANET_STYLE, shadeColor: '#5a1aff', shadeStrength: 0.4,
       rimColor: '#ff7ad8', rimIntensity: 0.8, rimLightSide: 0,
     },
   },
@@ -471,7 +479,7 @@ export const PLANET_PRESETS = {
     // Low metallic: planet mode has almost no sky light, so a full metal would only reflect the sun.
     material: { metallic: 0.2, clearCoat: 1, clearCoatRoughness: 0.05, thinFilm: 0.7, thinFilmThicknessNm: 450 },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#7b5cff', shadeStrength: 0.3, terminatorColor: '#ff9ad8', terminatorIntensity: 0.3,
+      ...PLANET_STYLE, shadeColor: '#7b5cff', shadeStrength: 0.3,
       rimColor: '#d6a8ff', rimIntensity: 0.7, rimWidth: 0.3,
     },
   },
@@ -483,7 +491,7 @@ export const PLANET_PRESETS = {
     },
     material: { clearCoat: 1, clearCoatRoughness: 0.05, subsurfaceColor: '#5a1a2a', subsurfaceOpacity: 0.4 },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#b45cff', shadeStrength: 0.35, terminatorColor: '#ff7a8a', terminatorIntensity: 0.4,
+      ...PLANET_STYLE, shadeColor: '#b45cff', shadeStrength: 0.35,
       rimColor: '#ffffff', rimIntensity: 0.5, rimWidth: 0.25,
     },
   },
@@ -491,10 +499,10 @@ export const PLANET_PRESETS = {
     planet: {
       seaLevel: 0, bubble: 1, noiseScale: 0.9, detail: 3, warp: 1.2, flowSpeed: 0.15, bump: 0.15,
       lowColor: '#ffffff', midColor: '#eef6ff', highColor: '#fff0fa', landRoughness: 0.03, cloudShadow: 0,
-      atmoColor: '#cfe8ff', atmoIntensity: 0.4, atmoSunset: 0.3, orbitCount: 1, orbitColor: '#ffd6f0', orbitIntensity: 0.8,
+      atmoColor: '#cfe8ff', atmoIntensity: 0.2, atmoSunset: 0.3, orbitCount: 1, orbitColor: '#ffd6f0', orbitIntensity: 0.8,
     },
     material: { thinFilm: 1, thinFilmThicknessNm: 900, thinFilmIor: 1.33, clearCoat: 0.5, clearCoatRoughness: 0.02 },
-    stylized: { ...PLANET_STYLE, shadeStrength: 0, terminatorIntensity: 0, rimColor: '#ffffff', rimIntensity: 0.5, rimWidth: 0.15 },
+    stylized: { ...PLANET_STYLE, shadeStrength: 0, rimColor: '#ffffff', rimIntensity: 0.5, rimWidth: 0.15 },
   },
   'Mochi Moon': {
     planet: {
@@ -503,7 +511,7 @@ export const PLANET_PRESETS = {
       atmoColor: '#ffd6f0', atmoIntensity: 0.3, atmoSunset: 0.5,
     },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#9b7bff', shadeStrength: 0.4, terminatorColor: '#ff9ab8', terminatorIntensity: 0.4,
+      ...PLANET_STYLE, shadeColor: '#9b7bff', shadeStrength: 0.4,
       rimColor: '#ffffff', rimIntensity: 0.3, outlineWidth: 2, outlineColor: '#5a3a6b',
     },
   },
@@ -515,8 +523,8 @@ export const PLANET_PRESETS = {
       atmoColor: '#5fb0ff', atmoIntensity: 1.4, atmoThickness: 0.1, atmoSunsetColor: '#ff6a2a', atmoSunset: 1.6,
     },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#3a4aff', shadeStrength: 0.15, terminatorColor: '#ff7a3a', terminatorIntensity: 0.2,
-      terminatorWidth: 0.15, rimIntensity: 0,
+      ...PLANET_STYLE, shadeColor: '#3a4aff', shadeStrength: 0.15,
+      rimIntensity: 0,
     },
   },
   'Aegis Fortress': {
@@ -528,7 +536,7 @@ export const PLANET_PRESETS = {
       atmoIntensity: 0.3, atmoColor: '#5fd8ff', orbitCount: 2, orbitRadius: 1.7, orbitColor: '#ffb35a', orbitColorB: '#5fd8ff',
     },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#4a5aff', shadeStrength: 0.2, terminatorColor: '#ff9a6a', terminatorIntensity: 0.15,
+      ...PLANET_STYLE, shadeColor: '#4a5aff', shadeStrength: 0.2,
       rimColor: '#9fe8ff', rimIntensity: 0.4, rimLightSide: -0.6,
     },
   },
@@ -539,19 +547,19 @@ export const PLANET_PRESETS = {
       panels: 0.35, panelScale: 8, panelSeam: 0.004, neonSeams: 1, scanColor: '#5fe8ff', scanWidth: 0.12, scanOnSelect: 1,
       atmoColor: '#3fd8ff', atmoIntensity: 0.8, orbitCount: 3, orbitColor: '#3fd8ff', orbitColorB: '#9ff0ff',
     },
-    stylized: { ...PLANET_STYLE, shadeColor: '#1a3aff', shadeStrength: 0.3, terminatorIntensity: 0, rimColor: '#3fd8ff', rimIntensity: 0.8 },
+    stylized: { ...PLANET_STYLE, shadeColor: '#1a3aff', shadeStrength: 0.3, rimColor: '#3fd8ff', rimIntensity: 0.8 },
   },
   'Donut Party': {
     shape: 'torus',
     planet: {
-      tiltDeg: 55, seaLevel: 0.55, deepColor: '#d9a066', shallowColor: '#e8b47a', lowColor: '#ff9ec7', midColor: '#ffc4dd',
+      tiltDeg: 55, terrace: 1, seaLevel: 0.55, deepColor: '#d9a066', shallowColor: '#e8b47a', lowColor: '#ff9ec7', midColor: '#ffc4dd',
       highColor: '#fff0f6', oceanRoughness: 0.7, landRoughness: 0.35, noiseScale: 1.4, detail: 3, warp: 0.6, bump: 0.8,
       cityColor: '#ffffff', cityIntensity: 0, atmoColor: '#ffd6f0', atmoIntensity: 0.6,
       orbitCount: 2, orbitRadius: 1.4, orbitColor: '#7fd8ff', orbitColorB: '#ffe08a',
     },
     material: { clearCoat: 0.6, clearCoatRoughness: 0.1 },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#b45cff', shadeStrength: 0.35, terminatorColor: '#ff7a8a', terminatorIntensity: 0.35,
+      ...PLANET_STYLE, shadeColor: '#b45cff', shadeStrength: 0.35,
       rimColor: '#ffffff', rimIntensity: 0.4, outlineWidth: 2, outlineColor: '#6b2a4a',
     },
   },
@@ -565,7 +573,7 @@ export const PLANET_PRESETS = {
     },
     material: { clearCoat: 1, clearCoatRoughness: 0.05 },
     stylized: {
-      ...PLANET_STYLE, shadeColor: '#ff7a5a', shadeStrength: 0.35, terminatorColor: '#ff5a8a', terminatorIntensity: 0.3,
+      ...PLANET_STYLE, shadeColor: '#ff7a5a', shadeStrength: 0.35,
       rimColor: '#fff6d0', rimIntensity: 0.5, outlineWidth: 2, outlineColor: '#7a4a1a',
     },
   },
@@ -582,14 +590,14 @@ export const LIGHT_DEFAULTS = {
   skyIntensity: 0.3,
   exposure: 1,
   toneMapping: 'ACES' as ToneMappingName, // UE5 filmic tonemapper is ACES-based
+  fillIntensity: 0, // hemisphere fill (UE: Sky Light colour with a lower-hemisphere colour)
+  bloomStrength: 0, // UE: post-process Bloom intensity; 0 skips the pass
 };
 
 export const SCENE_DEFAULTS = {
   appMode: 'planet' as AppMode, // the page opens on the planet gallery
   shape: 'sphere' as ShapeName,
   planetShape: 'sphere' as PlanetShapeName,
-  fillIntensity: 0, // hemisphere fill (UE: Sky Light colour with a lower-hemisphere colour)
-  bloomStrength: 0, // UE: post-process Bloom intensity; 0 skips the pass
 };
 
 export const RANGES: Record<string, Range> = {
@@ -613,14 +621,14 @@ export const RANGES: Record<string, Range> = {
   sunElevationDeg: { min: -10, max: 90, step: 1 },
   skyIntensity: { min: 0, max: 5, step: 0.01 },
   exposure: { min: 0, max: 5, step: 0.01 },
+  fillIntensity: { min: 0, max: 3, step: 0.01 },
+  bloomStrength: { min: 0, max: 3, step: 0.01 },
   // Planet
   tiltDeg: { min: -90, max: 90, step: 0.1 },
   degPerSec: { min: -60, max: 60, step: 0.5 },
   timeScale: { min: 0, max: 10, step: 0.1 },
   seed: { min: 0, max: 100, step: 0.1 },
   noiseScale: { min: 0.5, max: 8, step: 0.05 },
-  fillIntensity: { min: 0, max: 3, step: 0.01 },
-  bloomStrength: { min: 0, max: 3, step: 0.01 },
   warp: { min: 0, max: 3, step: 0.01 },
   detail: { min: 1, max: 6, step: 1 },
   bump: { min: 0, max: 5, step: 0.01 },
@@ -666,6 +674,7 @@ export const RANGES: Record<string, Range> = {
   cellScale: { min: 1, max: 12, step: 0.1 },
   cellCrackWidth: { min: 0.005, max: 0.3, step: 0.005 },
   cellDotSize: { min: 0.05, max: 0.6, step: 0.01 },
+  cellShape: { min: 0, max: 2, step: 1 },
   cellGlow: { min: 0, max: 20, step: 0.1 },
   face: { min: 0, max: 3, step: 1 },
   earSize: { min: 0.6, max: 1.4, step: 0.01 },
@@ -686,7 +695,8 @@ export const VIEW = {
   sunDistance: 10,
   shadowExtent: 3,
   shadowMapSize: 2048,
-  maxRenderScale: 1.5, // default pixel-ratio cap; 2 on a Retina screen costs about 1.8x the GPU time
-};
   bloomThreshold: 1.1, // linear luminance; only emissive parts and highlights pass
   bloomRadius: 0.4,
+  bloomClamp: 8, // scene colour is clamped to this before Bloom
+  maxRenderScale: 1.5, // default pixel-ratio cap; 2 on a Retina screen costs about 1.8x the GPU time
+};

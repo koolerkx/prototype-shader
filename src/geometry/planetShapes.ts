@@ -156,6 +156,16 @@ function gridBorder(): number[] {
 }
 const BORDER = gridBorder();
 
+/** Grid UVs (u around the axis, v from the north pole). Anisotropy needs them for its tangent: the highlight stretches along u. */
+function gridUv(): Float32Array {
+  const uv = new Float32Array((NU + 1) * (NV + 1) * 2);
+  for (let iy = 0; iy <= NV; iy++) {
+    for (let ix = 0; ix <= NU; ix++) uv.set([ix / NU, 1 - iy / NV], (iy * (NU + 1) + ix) * 2);
+  }
+  return uv;
+}
+const UV = new THREE.BufferAttribute(gridUv(), 2); // shared by every geometry
+
 /** Positions and smooth normals of one shape. Vertices that share a position (seam, poles) share one normal. */
 function buildTarget(shape: PlanetShapeName, roundness: number): { position: Float32Array; normal: Float32Array; yRange: [number, number] } {
   const position = new Float32Array((NU + 1) * (NV + 1) * 3);
@@ -217,6 +227,7 @@ export function createPlanetGeometry(starRoundness: number): PlanetGeometry {
   const g = new THREE.BufferGeometry() as PlanetGeometry;
   g.setAttribute('position', new THREE.BufferAttribute(targets[0].position.slice(), 3));
   g.setAttribute('normal', new THREE.BufferAttribute(targets[0].normal.slice(), 3));
+  g.setAttribute('uv', UV);
   g.setIndex(INDEX);
   g.morphAttributes.position = targets.map((t) => new THREE.BufferAttribute(t.position, 3));
   g.morphAttributes.normal = targets.map((t) => new THREE.BufferAttribute(t.normal, 3));

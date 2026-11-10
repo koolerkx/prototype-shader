@@ -41,6 +41,7 @@ export function ueRating(
     if (planet.cellCracks > 0 || planet.cellGlow > 0 || planet.cellFacets > 0) {
       extra.push('Voronoi 邊線（F2−F1）及切面法線：Noise 節點不提供，需要 Custom (HLSL) 節點或烘焙貼圖；成本高。');
     } else if (planet.cellDots > 0) info.push('Voronoi 圓點成本較高，建議烘焙。');
+    if (planet.cellDots > 0 && planet.cellShape > 0) info.push('星形／心形圖案：UE5 以圖案貼圖取代程序化 SDF。');
     if (planet.bubble > 0 && (material.clearCoat > 0 || (planet.neonGrid <= 0 && planet.surfaceEmissive <= 0))) {
       extra.push('Lit Translucent：光照解像度低、沒有 Clear Coat 高光、有排序問題；需要 Surface ForwardShading 或改用 Masked + Dither。');
     } else if (planet.bubble > 0) info.push('Unlit Translucent：注意 Overdraw 及排序。');
@@ -54,6 +55,9 @@ export function ueRating(
     if (planet.swayDeg > 0 || planet.breath > 0) info.push('擺動／呼吸：Blueprint 或 WPO。');
     if (planet.ringOpacity > 0) info.push('行星環：額外 Plane；星球投影以解析方式計算（MPC）。');
     if (planet.cloudCover > 0 || planet.cityIntensity > 0 || (npr && stylized.toonness > 0)) info.push('需要以 MPC 提供恆星方向。');
+    if (planet.bevel > 0 || planet.foam > 0) info.push('倒角／泡沫：來自同一張 height 貼圖，Material Instance 內完成。');
+    if (planet.cloudPuff > 0) info.push('雲層立體感：多一次雲層取樣，需要以 MPC 提供恆星方向。');
+    if (planet.sparkle > 0) info.push('閃粉：Emissive 輸出，不受投影影響；建議使用平鋪閃片貼圖。');
     if (planet.atmoIntensity > 0) info.push('大氣：額外 Sphere + Additive 材質。');
     if (planet.orbitCount > 0 || planet.shieldIntensity > 0) info.push('軌道線／護盾：額外 mesh + Additive 材質。');
     if (planet.surfaceEmissive > 0) info.push('Unlit Shading Model。');

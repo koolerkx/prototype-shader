@@ -161,6 +161,13 @@ export const TOOLTIPS: Record<string, string> = {
   bubble: '泡泡效果：中央透明、邊緣不透明（Fresnel），高光保持可見。顏色來自 Material 分頁的 Thin Film；薄膜厚度跟隨表面圖案流動（UE: Translucent，Opacity = Fresnel，Substrate thin film）。',
   cloudShadow: '雲層投影：在太陽方向偏移再取樣一次雲層，令下方地面變暗（UE: 第二次雲層取樣，MPC 太陽方向）。',
 
+  // Planet: toy look
+  bevel: '玩具倒角：陸地成為平坦海面上凸起的一件，每個色階切口的上緣加一條淺色細帶（UE: 同一張 height 貼圖，偏移後再做一次 step）。',
+  foam: '海岸泡沫：水線上的白色色帶，外側再有一圈較幼的線，緩慢進退。需要 Sea Level > 0。',
+  cloudPuff: '雲層立體感：背向太陽的一側加一個陰影色階，雲層有自己的凸起（UE: 與 Cloud Shadow 相同的偏移取樣，方向相反）。',
+  sparkle: '閃粉：隨視角閃動的細點，只在受光面出現（UE: 平鋪的閃片遮罩輸出到 Emissive）。',
+  blink: '眨眼：張開的眼睛每隔約 3.3 秒閉上一次（UE: 由 Time 節點驅動的 scalar）。',
+
   // Planet: atmosphere scattering and shield
   atmoSunsetColor: '散射顏色：出現在明暗分界附近，以及背光時大氣層邊緣的光暈。',
   atmoSunset: '散射顏色的強度。0 = 只有白天顏色。',

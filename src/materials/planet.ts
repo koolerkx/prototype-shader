@@ -80,6 +80,7 @@ const createUniforms = () => ({
   uCellCrackWidth: { value: 0.05 },
   uCellDots: { value: 0 },
   uCellDotSize: { value: 0.3 },
+  uCellShape: { value: 0 },
   uCellFacets: { value: 0 },
   uCellColor: { value: new THREE.Color() },
   uCellGlow: { value: 0 },
@@ -95,6 +96,11 @@ const createUniforms = () => ({
   uBlushColor: { value: new THREE.Color() },
   uWhiskers: { value: 0 },
   uHeightAO: { value: 0 },
+  uBevel: { value: 0 },
+  uFoam: { value: 0 },
+  uCloudPuff: { value: 0 },
+  uSparkle: { value: 0 },
+  uBlink: { value: 0 },
   uNebula: { value: 0 },
   uPlanetCamObj: { value: new THREE.Vector3() }, // per frame
   uRingShade: { value: new THREE.Vector3() }, // ring inner, outer, opacity

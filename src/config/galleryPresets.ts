@@ -21,14 +21,14 @@ const SURFACES: Record<string, Surface> = {
   Terraced: {
     toon: 0.5, shade: '#8a80c8', rim: '#bfe6ff', steps: 2,
     planet: {
-      seaLevel: 0, terrace: 1, noiseScale: 1.5, detail: 2, warp: 0.2, lowColor: '#7fc8a9', midColor: '#f2c57c',
+      seaLevel: 0, terrace: 1, noiseScale: 1.2, detail: 2, warp: 0.2, lowColor: '#7fc8a9', midColor: '#f2c57c',
       highColor: '#e58f8f', polarCap: 0.15, landRoughness: 0.65, atmoColor: '#bfe6ff', atmoIntensity: 0.6,
     },
   },
   Earthlike: {
     toon: 0.4, shade: '#6e78c0', rim: '#9fd8ff', steps: 2,
     planet: {
-      seaLevel: 0.52, noiseScale: 1.8, detail: 2, deepColor: '#2a59a0', shallowColor: '#3a7bd5', lowColor: '#f5e0a8',
+      seaLevel: 0.52, terrace: 1, noiseScale: 1.4, detail: 2, deepColor: '#2a59a0', shallowColor: '#3a7bd5', lowColor: '#f5e0a8',
       midColor: '#6cc66c', highColor: '#6cc66c', oceanRoughness: 0.12, landRoughness: 0.8, polarCap: 0.12,
       cloudCover: 0.4, cloudSoftness: 0.03, cloudSpeedDegPerSec: 14, atmoColor: '#9fd8ff',
     },
@@ -97,7 +97,7 @@ const SURFACES: Record<string, Surface> = {
   Desert: {
     toon: 0.5, shade: '#a0608a', rim: '#ffc080', steps: 2,
     planet: {
-      seaLevel: 0, bands: 0.5, bandFrequency: 18, bandTurbulence: 1.2, bandSpeedDegPerSec: 0, warp: 0.8,
+      seaLevel: 0, bands: 0.5, bandFrequency: 18, bandTurbulence: 0.5, bandSpeedDegPerSec: 0, warp: 0.8, terrace: 1,
       lowColor: '#c06838', midColor: '#e08848', highColor: '#f0a860', landRoughness: 0.9,
       craters: 1, craterScale: 1.6, craterDensity: 0.2, atmoColor: '#ffc080', atmoIntensity: 0.7,
     },
@@ -125,7 +125,7 @@ const SURFACES: Record<string, Surface> = {
     toon: 0.3, shade: '#c070b0', rim: '#ffe0f0',
     planet: {
       seaLevel: 0, noiseScale: 2, detail: 2, warp: 0.6, flowSpeed: 0.1, bump: 0.5, lowColor: '#ff8fc8', midColor: '#ffc0e0',
-      highColor: '#ffc0e0', landRoughness: 0.25, cellScale: 4, cellDots: 0.7, cellDotSize: 0.16, cellColor: '#fff0f8',
+      highColor: '#ffc0e0', landRoughness: 0.25, cellScale: 2.6, cellDots: 1, cellShape: 2, cellDotSize: 0.36, cellColor: '#fff0f8',
       atmoColor: '#ffe0f0', atmoIntensity: 0.5,
     },
     material: { clearCoat: 1, clearCoatRoughness: 0.03, subsurfaceColor: '#ff4f9a', subsurfaceOpacity: 0.2 },
@@ -141,7 +141,7 @@ const SURFACES: Record<string, Surface> = {
   'Cotton Cloud': {
     toon: 0.4, shade: '#a898d8', rim: '#ffffff',
     planet: {
-      seaLevel: 0, noiseScale: 2.2, detail: 2, warp: 0.3, flowSpeed: 0.05, bump: 2, lowColor: '#d8c8f8', midColor: '#ffffff',
+      seaLevel: 0, terrace: 1, noiseScale: 1.8, detail: 2, warp: 0.3, flowSpeed: 0.05, bump: 1.2, lowColor: '#d8c8f8', midColor: '#ffffff',
       highColor: '#ffffff', landRoughness: 1, atmoColor: '#ffffff', atmoIntensity: 0.5,
     },
     material: { fuzzAmount: 0.6, fuzzColor: '#f4eeff', fuzzRoughness: 0.6, subsurfaceColor: '#6a5aa8', subsurfaceOpacity: 0.5 },
@@ -201,10 +201,10 @@ const IDEAS: Record<string, PlanetPreset> = {
   Hologram: {
     planet: {
       spinDegPerSec: 20, seaLevel: 0, bump: 0, lowColor: '#04121c', midColor: '#04121c', highColor: '#04121c', landRoughness: 0.4,
-      bubble: 1, neonGrid: 3, neonColor: '#40e6ff', scanColor: '#40e6ff', scanOnSelect: 1, atmoColor: '#40e6ff', atmoIntensity: 0.6, atmoSunset: 0,
+      bubble: 1, neonGrid: 1.4, neonColor: '#40e6ff', scanColor: '#40e6ff', scanOnSelect: 1, atmoColor: '#40e6ff', atmoIntensity: 0.6, atmoSunset: 0,
       orbitCount: 1, orbitRadius: 1.32, orbitInclinationDeg: 0, orbitColor: '#40e6ff', orbitIntensity: 1.2, orbitPulses: 4,
     },
-    stylized: look(0, '#ffffff', '#40e6ff', { rimIntensity: 1.8, rimWidth: 0.35, rimSoftness: 0.3, rimLightSide: 0 }),
+    stylized: look(0, '#ffffff', '#40e6ff', { rimIntensity: 1, rimWidth: 0.35, rimSoftness: 0.3, rimLightSide: 0 }),
   },
   Portal: {
     shape: 'torus',
@@ -289,9 +289,103 @@ const CATS: Record<string, PlanetPreset> = {
   }),
 };
 
+// --- Toy Squadron v4.0: Mario Kart cute + ASTRO BOT toy plastic + Ace Combat cool. ---
+// Shared cues: a tinted fill on the dark side (never black), a wide soft Clear Coat highlight (moulded plastic),
+// chunky low-detail shapes with bevel strips, and squadron accents (orbit pulses, panel seams, city lights).
+const toyLook = (toon: number, shade: string, rim: string, over: Stylized = {}): Stylized =>
+  look(toon, shade, rim, { shadeStrength: 0.12, rimIntensity: 0.6, ...over });
+const PLASTIC: Material = { clearCoat: 0.8, clearCoatRoughness: 0.16 };
+
+const TOYS: Record<string, PlanetPreset> = {
+  'Toy Terra': {
+    planet: {
+      seaLevel: 0.5, terrace: 1, noiseScale: 1.3, detail: 2, warp: 0.2, bump: 1.4, deepColor: '#1f55c8', shallowColor: '#3fa8f0',
+      lowColor: '#6fd05a', midColor: '#38a85a', highColor: '#e8b86a', oceanRoughness: 0.1, landRoughness: 0.45, polarCap: 0.1,
+      bevel: 1, foam: 1, cloudCover: 0.28, cloudSoftness: 0.02, cloudScale: 2, cloudPuff: 1, cloudSpeedDegPerSec: 10,
+      atmoColor: '#9fe0ff', atmoIntensity: 0.8,
+    },
+    material: PLASTIC,
+    stylized: toyLook(0.5, '#7a70d8', '#bfeaff'),
+  },
+  'Night Sortie': {
+    planet: {
+      tiltDeg: 23.4, spinDegPerSec: 4, seaLevel: 0.5, noiseScale: 1.4, detail: 3, warp: 0.3, bump: 1.2, deepColor: '#0c1c40',
+      shallowColor: '#1f4a8a', lowColor: '#2c4a52', midColor: '#3f6260', highColor: '#9aa8b0', oceanRoughness: 0.1, landRoughness: 0.6,
+      polarCap: 0.1, bevel: 0.7, foam: 0.6, cloudCover: 0.38, cloudSoftness: 0.04, cloudPuff: 1, cloudShadow: 0.8,
+      cityColor: '#ffb35a', cityIntensity: 5, cityDensity: 0.5,
+      atmoColor: '#4fb6ff', atmoIntensity: 1.5, atmoThickness: 0.09, atmoSunsetColor: '#ff6a2a', atmoSunset: 1.6,
+      orbitCount: 2, orbitRadius: 1.45, orbitColor: '#7fd8ff', orbitColorB: '#ffb35a', orbitPulses: 1, orbitPulseLength: 0.2, orbitSpeedDegPerSec: 80,
+    },
+    material: { clearCoat: 0.5, clearCoatRoughness: 0.14 },
+    stylized: toyLook(0.3, '#3a4ac8', '#7fd8ff', { shadeStrength: 0.2, terminatorColor: '#ff7a4a', terminatorIntensity: 0.25, terminatorWidth: 0.12, rimLightSide: 0.7 }),
+  },
+  'Candy Circuit': {
+    planet: {
+      tiltDeg: 22, seaLevel: 0, bands: 1, bandFrequency: 4, bandTurbulence: 0.25, bandSpeedDegPerSec: 6, terrace: 1, bump: 0.8,
+      lowColor: '#ff8fc0', midColor: '#fff3d0', highColor: '#6fd8f0', landRoughness: 0.3, bevel: 1, sparkle: 0.7,
+      atmoColor: '#ffd0ec', atmoIntensity: 0.6, ringOpacity: 0.85, ringInner: 1.35, ringOuter: 2.1, ringColorA: '#fff3d0', ringColorB: '#ff9ed0',
+      orbitCount: 2, orbitRadius: 2.3, orbitSpacing: 0.2, orbitInclinationDeg: 8, orbitColor: '#6ff0ff', orbitColorB: '#ffe066', orbitPulses: 5,
+      orbitPulseLength: 0.5, orbitSpeedDegPerSec: 70,
+    },
+    material: { ...PLASTIC, clearCoat: 1 },
+    stylized: toyLook(0.5, '#a070d0', '#ffe0f4'),
+  },
+  // White plastic shell, a few blue plates, glowing eyes that blink.
+  'Robo Pal': {
+    planet: {
+      tiltDeg: 6, swayDeg: 14, breath: 0.5, seaLevel: 0, warp: 0, terrace: 1, panels: 1, panelScale: 2.5, panelSeam: 0.014, panelMetallic: 0,
+      bump: 1.2, lowColor: '#cfd6e6', midColor: '#2f78f0', highColor: '#cfd6e6', landRoughness: 0.3, bevel: 0.6,
+      face: 1, faceColor: '#4fe8ff', faceGlow: 1.1, blink: 1, blush: 0.6, blushColor: '#8fd8ff',
+      neonColor: '#4fe8ff', neonColorB: '#4fe8ff', neonIntensity: 0.6, neonSeams: 1, neonSpeed: 1.5,
+      atmoColor: '#9fe8ff', atmoIntensity: 0.4, orbitCount: 1, orbitRadius: 1.4, orbitColor: '#4fe8ff', orbitPulses: 3,
+    },
+    material: { clearCoat: 1, clearCoatRoughness: 0.12 },
+    stylized: toyLook(0.4, '#8a90e0', '#cfeeff'),
+  },
+  'Strike Base': {
+    planet: {
+      tiltDeg: 18, spinDegPerSec: 5, seaLevel: 0, warp: 0.2, terrace: 1, panels: 1, panelScale: 5, panelSeam: 0.01, panelMetallic: 0.45,
+      bump: 1.3, lowColor: '#46536e', midColor: '#ff8a2a', highColor: '#5c6b8a', landRoughness: 0.38, bevel: 0.8,
+      cityColor: '#ffd08a', cityIntensity: 3, cityDensity: 0.5, neonColor: '#5fd8ff', neonColorB: '#5fd8ff', neonIntensity: 2.5,
+      neonSeams: 1, neonSpeed: 1.5, shieldIntensity: 0.9, shieldColor: '#5fd8ff', shieldRadius: 1.3, shieldHexCount: 20, shieldHitRate: 0.5,
+      atmoColor: '#5fd8ff', atmoIntensity: 0.3, orbitCount: 2, orbitRadius: 1.65, orbitColor: '#ff8a2a', orbitColorB: '#5fd8ff',
+      orbitPulses: 2, orbitPulseLength: 0.2, orbitSpeedDegPerSec: 90,
+    },
+    material: { clearCoat: 0.6, clearCoatRoughness: 0.14 },
+    stylized: toyLook(0.35, '#4a5ad0', '#9fe8ff', { shadeStrength: 0.22, rimLightSide: -0.5 }),
+  },
+  // Two shells and a seam band, like a capsule-toy ball.
+  'Gacha Capsule': {
+    planet: {
+      tiltDeg: 28, spinDegPerSec: 12, seaLevel: 0, bands: 1, bandFrequency: 0.5, bandTurbulence: 0, bandSpeedDegPerSec: 0, terrace: 1,
+      bump: 1, lowColor: '#fff6ee', midColor: '#ffd23f', highColor: '#ff4f6a', landRoughness: 0.22, bevel: 1, sparkle: 0.5,
+      atmoColor: '#ffd0d8', atmoIntensity: 0.4, orbitCount: 1, orbitRadius: 1.4, orbitInclinationDeg: 20, orbitColor: '#ffe066', orbitPulses: 4,
+    },
+    material: { clearCoat: 1, clearCoatRoughness: 0.1, subsurfaceColor: '#7a1a2a', subsurfaceOpacity: 0.5 },
+    stylized: toyLook(0.45, '#b070c8', '#ffe8ee'),
+  },
+  'Polka Cube': {
+    shape: 'roundCube',
+    planet: {
+      tiltDeg: 22, spinDegPerSec: 12, seaLevel: 0, detail: 1, bump: 1.2, lowColor: '#3fc8b8', midColor: '#3fc8b8', highColor: '#3fc8b8',
+      landRoughness: 0.3, cellScale: 2.6, cellDots: 1, cellDotSize: 0.4, cellColor: '#fff8e8', sparkle: 0.8,
+      atmoColor: '#bff4ea', atmoIntensity: 0.4,
+    },
+    material: PLASTIC,
+    stylized: toyLook(0.5, '#6a70c8', '#dffff8', { outlineWidth: 1.5, outlineColor: '#1f5a5a' }),
+  },
+  // Squadron livery on a cat: white coat, navy stripes, orange accents, blinking eyes.
+  'Pilot Cat': cat('#eef2fa', '#ff9a3a', {
+    tiltDeg: 8, scaleX: 1.02, scaleY: 0.92, scaleZ: 0.96, earAngleDeg: 6, earSpacingDeg: 31, whiskers: 1, blink: 1,
+    bands: 1, bandFrequency: 3.6, bandTurbulence: 0.5, bandSpeedDegPerSec: 0, terrace: 1, highColor: '#3d4f85', bevel: 0.6,
+    collar: 1, collarColor: '#ff9a3a', blushColor: '#ffb0a0',
+    orbitCount: 1, orbitRadius: 1.75, orbitInclinationDeg: 12, orbitColor: '#ff9a3a', orbitPulses: 2, orbitPulseLength: 0.2, orbitSpeedDegPerSec: 80,
+  }, { clearCoat: 0.9, clearCoatRoughness: 0.14 }, { shadeStrength: 0.3 }),
+};
+
 const grouped = (group: string, presets: Record<string, PlanetPreset>) =>
   Object.entries(presets).map(([name, p]): [string, PlanetPreset] => [name, { ...p, group }]);
 
 export const GALLERY_PRESETS: Record<string, PlanetPreset> = Object.fromEntries([
-  ...stylizedPbr, ...pureToon, ...grouped('New Ideas v3.0', IDEAS), ...grouped('Cat-Ear v1.0', CATS),
+  ...grouped('Toy Squadron v4.0', TOYS), ...stylizedPbr, ...pureToon, ...grouped('New Ideas v3.0', IDEAS), ...grouped('Cat-Ear v1.0', CATS),
 ]);

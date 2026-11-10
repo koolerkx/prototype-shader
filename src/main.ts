@@ -5,6 +5,7 @@ import { ViewHelper } from 'three/addons/helpers/ViewHelper.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { GALLERY_PRESETS } from './config/galleryPresets';
 import {
@@ -25,6 +26,7 @@ import {
   createRing, createShield, setAtmosphereShape, updatePlanetFrame, updatePlanetView,
 } from './materials/planet';
 import { addStylizedLayer, applyStylized, setStylizedBounds, updateStylizedView } from './materials/stylized';
+import { SANITIZE_SHADER } from './shaders/post';
 import { createGallery, type GalleryItem } from './ui/gallery';
 import { createPanel } from './ui/panel';
 import {
@@ -594,6 +596,7 @@ ui.range('Cell Cracks', planetParams, 'cellCracks', RANGES.unit, applyPlanetPara
 ui.range('Crack Width', planetParams, 'cellCrackWidth', RANGES.cellCrackWidth, applyPlanetParams);
 ui.range('Cell Dots', planetParams, 'cellDots', RANGES.unit, applyPlanetParams);
 ui.range('Dot Size', planetParams, 'cellDotSize', RANGES.cellDotSize, applyPlanetParams);
+ui.range('Dot Shape', planetParams, 'cellShape', RANGES.cellShape, applyPlanetParams);
 ui.range('Cell Facets', planetParams, 'cellFacets', RANGES.unit, applyPlanetParams);
 ui.color('Cell Color', planetParams, 'cellColor', applyPlanetParams);
 ui.range('Cell Glow', planetParams, 'cellGlow', RANGES.cellGlow, applyPlanetParams);
@@ -606,7 +609,14 @@ ui.range('Face Glow', planetParams, 'faceGlow', RANGES.cellGlow, applyPlanetPara
 ui.range('Blush', planetParams, 'blush', RANGES.unit, applyPlanetParams);
 ui.color('Blush Color', planetParams, 'blushColor', applyPlanetParams);
 ui.range('Whiskers', planetParams, 'whiskers', RANGES.toggle, applyPlanetParams);
+ui.range('Blink', planetParams, 'blink', RANGES.toggle, applyPlanetParams);
 ui.range('Parcel', planetParams, 'parcel', RANGES.unit, applyPlanetParams);
+
+ui.section('Toy Look', false);
+ui.range('Bevel', planetParams, 'bevel', RANGES.unit, applyPlanetParams);
+ui.range('Shore Foam', planetParams, 'foam', RANGES.unit, applyPlanetParams);
+ui.range('Cloud Puff', planetParams, 'cloudPuff', RANGES.unit, applyPlanetParams);
+ui.range('Sparkle', planetParams, 'sparkle', RANGES.unit, applyPlanetParams);
 
 ui.section('Bubble', false);
 ui.range('Bubble', planetParams, 'bubble', RANGES.unit, applyPlanetParams);
@@ -764,19 +774,19 @@ ui.range('Sun Intensity', lightParams, 'sunIntensity', RANGES.sunIntensity, appl
 ui.range('Sun Azimuth°', lightParams, 'sunAzimuthDeg', RANGES.sunAzimuthDeg, applyLight);
 ui.range('Sun Elevation°', lightParams, 'sunElevationDeg', RANGES.sunElevationDeg, applyLight);
 ui.range('Sky Intensity', lightParams, 'skyIntensity', RANGES.skyIntensity, applyLight);
+ui.range('Fill Intensity', lightParams, 'fillIntensity', RANGES.fillIntensity, applyLight);
 
 ui.section('Post');
 ui.select('Tone Mapping', lightParams, 'toneMapping', TONE_MAPPINGS, applyLight);
 ui.range('Exposure', lightParams, 'exposure', RANGES.exposure, applyLight);
+ui.range('Bloom', lightParams, 'bloomStrength', RANGES.bloomStrength, applyLight);
 
 // View setting, not part of presets: pixels rendered per CSS pixel.
 const viewParams = { renderScale: renderer.getPixelRatio() };
-ui.range('Fill Intensity', lightParams, 'fillIntensity', RANGES.fillIntensity, applyLight);
 ui.section('Performance');
 ui.range('Render Scale', viewParams, 'renderScale', RANGES.renderScale, () => {
   renderer.setPixelRatio(viewParams.renderScale);
   resize();
-ui.range('Bloom', lightParams, 'bloomStrength', RANGES.bloomStrength, applyLight);
 });
 
 function showModeControls() {
@@ -804,13 +814,6 @@ function updateFrame(cam: THREE.Camera) {
 // --- Gallery: thumbnails rendered with the main renderer into a corner, then copied out ---
 const THUMB_PX = 168;
 const thumbCamera = new THREE.PerspectiveCamera(32, 1, 0.05, 200);
-let snapshot: {
-  scene: typeof sceneParams; planet: typeof planetParams; mat: typeof matParams; style: typeof styleParams;
-  light: typeof lightParams; modes: Record<AppMode, ModeParams>; activeMode: AppMode; morph: typeof morph; scanPlaying: boolean;
-} | undefined;
-
-function renderThumbnail(state: SavedState): HTMLCanvasElement {
-  applyState(state, { instant: true, thumbnail: true });
 const cameraAzimuth = Math.atan2(VIEW.cameraPosition[2], VIEW.cameraPosition[0]); // thumbnails look from the same side as the default view
 
 // --- Bloom (UE: default post-process Bloom). One composer per camera; used only while Bloom > 0. ---
@@ -819,6 +822,9 @@ function createBloom(cam: THREE.Camera) {
   const composer = new EffectComposer(renderer, target);
   const pass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0, VIEW.bloomRadius, VIEW.bloomThreshold);
   composer.addPass(new RenderPass(scene, cam));
+  const sanitize = new ShaderPass(SANITIZE_SHADER); // NaN / Inf pixels would be blurred over the whole frame
+  sanitize.uniforms.uMax.value = VIEW.bloomClamp;
+  composer.addPass(sanitize);
   composer.addPass(pass);
   composer.addPass(new OutputPass()); // tone mapping and sRGB, as the direct path does in the material
   return {
@@ -834,6 +840,13 @@ function createBloom(cam: THREE.Camera) {
 }
 const viewBloom = createBloom(camera);
 const thumbBloom = createBloom(thumbCamera);
+let snapshot: {
+  scene: typeof sceneParams; planet: typeof planetParams; mat: typeof matParams; style: typeof styleParams;
+  light: typeof lightParams; modes: Record<AppMode, ModeParams>; activeMode: AppMode; morph: typeof morph; scanPlaying: boolean;
+} | undefined;
+
+function renderThumbnail(state: SavedState): HTMLCanvasElement {
+  applyState(state, { instant: true, thumbnail: true });
   const yaw = mesh.rotation.y;
   if (isPlanet()) mesh.rotation.y = planetParams.swayDeg > 0 ? PLANET_VIEW.faceYawDeg * DEG2RAD : 0.6; // a face looks at the camera; the rest show a fixed side
   if (isPlanet()) thumbCamera.position.set(Math.cos(cameraAzimuth) * 3.4, PLANET_VIEW.centerY + 1.6, Math.sin(cameraAzimuth) * 3.4);
@@ -903,7 +916,7 @@ const gallery = createGallery<SavedState>(document.getElementById('app')!, rende
   },
 });
 
-const GALLERY_ORDER = ['Planets', 'Cat-Ear v1.0', 'Pure Toon v1.0', 'Stylized PBR v2.0', 'New Ideas v3.0', 'Material'];
+const GALLERY_ORDER = ['Planets', 'Toy Squadron v4.0', 'Cat-Ear v1.0', 'Pure Toon v1.0', 'Stylized PBR v2.0', 'New Ideas v3.0', 'Material'];
 
 /** Fills the gallery: planet presets under their group heading, user presets, then material presets. */
 function showGallery() {
@@ -928,6 +941,7 @@ function showGallery() {
 const resize = () => {
   const { clientWidth: w, clientHeight: h } = viewport;
   renderer.setSize(w, h);
+  viewBloom.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   outline.material.uniforms.uResolution.value.set(w, h);
@@ -935,7 +949,6 @@ const resize = () => {
 new ResizeObserver(resize).observe(viewport);
 
 // The page opens on the full gallery. The thumbnails use the main canvas, so it needs its size first.
-  viewBloom.setSize(w, h);
 gallery.setFull(true);
 resize();
 showGallery();

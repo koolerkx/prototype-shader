@@ -61,7 +61,7 @@ varying float vFacing;
 void main() {
 	vec3 col = mix( mix( uColorA, vec3( 0.72, 0.5, 1.0 ), smoothstep( 0.0, 0.6, vAlong ) ), uColorB, smoothstep( 0.6, 1.0, vAlong ) );
 	float flow = 0.6 + 0.4 * sin( vAlong * 24.0 - uTime * 4.0 );
-	gl_FragColor = vec4( col * ( flow * uGain * pow( vFacing, uSoft ) ), 1.0 );
+	gl_FragColor = vec4( col * ( flow * uGain * pow( max( vFacing, 0.0 ), uSoft ) ), 1.0 );
 	#include <tonemapping_fragment>
 	#include <colorspace_fragment>
 }

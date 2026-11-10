@@ -142,6 +142,7 @@ uniform float uCellCracks;
 uniform float uCellCrackWidth;
 uniform float uCellDots;
 uniform float uCellDotSize;
+uniform float uCellShape;
 uniform float uCellFacets;
 uniform vec3 uCellColor;
 uniform float uCellGlow;
@@ -157,6 +158,11 @@ uniform float uBlush;
 uniform vec3 uBlushColor;
 uniform float uWhiskers;
 uniform float uHeightAO;
+uniform float uBevel;
+uniform float uFoam;
+uniform float uCloudPuff;
+uniform float uSparkle;
+uniform float uBlink;
 uniform float uNebula;
 uniform vec3 uPlanetCamObj; // camera in the planet's object space
 uniform vec3 uRingShade; // ring inner, outer (planet radii), opacity
@@ -175,6 +181,7 @@ vec3 planetHash3( vec3 p ) {
 // Set by planetHeight and read by the colour pass and the facet normal.
 vec3 planetCell = vec3( 8.0, 8.0, 0.0 );
 vec3 planetCellPoint = vec3( 0.0 );
+vec3 planetCellPos = vec3( 0.0 ); // the shaded point in cell space
 vec3 planetVoronoi( vec3 P ) {
 	vec3 b = floor( P );
 	vec3 res = vec3( 8.0, 8.0, 0.0 );
@@ -191,6 +198,30 @@ bool planetCellsOn() { return uCellCracks + uCellDots + uCellFacets + uCellGlow 
 // One dot per cell; a fifth of the cells stay empty. x: dot radius, y: 1 when the cell has a dot.
 vec2 planetDot() { return vec2( uCellDotSize * mix( 0.7, 1.15, fract( planetCell.z * 7.13 ) ), step( 0.2, fract( planetCell.z * 3.71 ) ) ); }
 
+// Motif SDFs, unit size (Inigo Quilez, MIT licence). UE: a motif texture instead.
+float planetStar( vec2 p ) {
+	const float rf = 0.45; // inner radius / tip radius
+	const vec2 k1 = vec2( 0.809016994375, - 0.587785252292 );
+	const vec2 k2 = vec2( - 0.809016994375, - 0.587785252292 );
+	p.x = abs( p.x );
+	p -= 2.0 * max( dot( k1, p ), 0.0 ) * k1;
+	p -= 2.0 * max( dot( k2, p ), 0.0 ) * k2;
+	p.x = abs( p.x );
+	p.y -= 1.0;
+	vec2 ba = rf * vec2( - k1.y, k1.x ) - vec2( 0.0, 1.0 );
+	float h = clamp( dot( p, ba ) / dot( ba, ba ), 0.0, 1.0 );
+	return length( p - ba * h ) * sign( p.y * ba.x - p.x * ba.y );
+}
+float planetHeart( vec2 p ) {
+	p = p * 0.6 + vec2( 0.0, 0.55 );
+	p.x = abs( p.x );
+	vec2 a = p - vec2( 0.25, 0.75 );
+	vec2 b = p - vec2( 0.0, 1.0 );
+	vec2 c = p - 0.5 * max( p.x + p.y, 0.0 );
+	float d = p.y + p.x > 1.0 ? sqrt( dot( a, a ) ) - 0.3535534 : sqrt( min( dot( b, b ), dot( c, c ) ) ) * sign( p.x - p.y );
+	return d / 0.6;
+}
+
 // Face shapes on the xy plane of the unit direction.
 float planetEll( vec2 f, vec2 c, vec2 r, float aa ) { return 1.0 - smoothstep( 1.0 - aa, 1.0 + aa, length( ( f - c ) / r ) ); }
 float planetArc( vec2 f, vec2 c, float r, float w ) { return ( 1.0 - smoothstep( w * 0.6, w, abs( length( f - c ) - r ) ) ) * step( f.y, c.y ); }
@@ -202,6 +233,8 @@ float planetGridLines( vec3 d ) {
 	float wb = max( min( fwidth( lo ), 0.5 ), 0.02 ); // the atan seam sits on a grid line
 	return max( 1.0 - smoothstep( wa, wa * 2.2, abs( fract( la + 0.5 ) - 0.5 ) ), 1.0 - smoothstep( wb, wb * 2.2, abs( fract( lo + 0.5 ) - 0.5 ) ) );
 }
+// A thin strip just above a height cut at x = 0, anti-aliased by w.
+float planetStrip( float x, float w ) { return smoothstep( - w, w, x ) * ( 1.0 - smoothstep( 0.03, 0.03 + 2.0 * w, x ) ); }
 float planetSeg( vec2 p, vec2 a, vec2 b ) { vec2 pa = p - a, ba = b - a; return length( pa - ba * clamp( dot( pa, ba ) / dot( ba, ba ), 0.0, 1.0 ) ); }
 
 // Surface height 0..1 at an object-space point (in planet radii). One function feeds both the colour pass and the
@@ -221,7 +254,7 @@ float planetHeight( vec3 pos, vec3 n, out vec3 warp, out float terrain, out floa
 	if ( uBands > 0.0 ) {
 		float lat = clamp( pos.y, - 1.0, 1.0 );
 		vec3 bandPos = planetRotY( pos, t * uBandSpeed * ( 0.4 + 0.6 * ( 1.0 - lat * lat ) ) );
-		float turb = planetFbm( bandPos * uNoiseScale * 1.5 + uSeed + warp * uWarp, 4.0 );
+		float turb = planetFbm( bandPos * uNoiseScale * 1.5 + uSeed + warp * uWarp, min( uDetail, 4.0 ) );
 		float twist = uBandTwist != 0.0 ? uBandTwist * atan( bandPos.z, bandPos.x ) : 0.0; // candy swirl
 		float stripes = 0.5 + 0.5 * sin( ( lat * uBandFrequency + turb * uBandTurbulence ) * PI + twist );
 		h = mix( h, stripes, uBands );
@@ -249,7 +282,8 @@ float planetHeight( vec3 pos, vec3 n, out vec3 warp, out float terrain, out floa
 
 	// Voronoi cells: border grooves, a dome per dot; facets flatten the relief (their normal is set per cell).
 	if ( planetCellsOn() ) {
-		planetCell = planetVoronoi( pos * uCellScale + uSeed * 0.53 );
+		planetCellPos = pos * uCellScale + uSeed * 0.53;
+		planetCell = planetVoronoi( planetCellPos );
 		float border = planetCell.y - planetCell.x;
 		h -= uCellCracks * ( 1.0 - smoothstep( 0.0, uCellCrackWidth * 2.0, border ) ) * 0.35;
 		vec2 dotR = planetDot();
@@ -320,6 +354,7 @@ if ( uPlanet > 0.5 ) {
 	float rayB = dot( pos, viewRay );
 	float rayDisc = rayB * rayB - dot( pos, pos ) + 1.0;
 	float raySpan = rayDisc > 0.0 ? - rayB + sqrt( rayDisc ) : 0.0;
+	vec3 sunObj = normalize( transpose( uPlanetObjToView ) * uSunDirView ); // UE: MPC sun direction
 
 	// Hologram scan: everything above the front is cut away (UE: Masked, OpacityMask from object height).
 	float scanBand = 0.0;
@@ -351,6 +386,24 @@ if ( uPlanet > 0.5 ) {
 	vec3 col = mix( seaCol, landCol, land );
 	planetRough = mix( uOceanRoughness, uLandRoughness, land );
 
+	// Bevel (toy look): land sits on a flat sea as a raised moulded piece, and every tone cut gets a light strip on
+	// its upper edge, like the chamfer highlight of a plastic part. UE: the same height texture through offset steps.
+	if ( uBevel > 0.0 ) {
+		float coast = step( 1e-3, uSeaLevel );
+		if ( coast > 0.0 ) planetReliefH = mix( mix( uSeaLevel, uSeaLevel * 0.3, uTerrace ), planetReliefH + uBevel * 0.2, smoothstep( uSeaLevel, uSeaLevel + 0.03, h ) );
+		float strips = coast * planetStrip( landH, terraceW ) + uTerrace * ( planetStrip( landH - 0.42, terraceW ) + planetStrip( landH - 0.6, terraceW ) );
+		col = mix( col, vec3( 1.0 ), uBevel * 0.35 * saturate( strips ) * land );
+	}
+	// Shore foam: a white band on the waterline and a thinner ring further out, both breathing slowly.
+	if ( uFoam > 0.0 && uSeaLevel > 0.0 ) {
+		float depth = uSeaLevel - h + 0.006 * sin( t * 1.5 + terrain * 30.0 );
+		float foam = 1.0 - smoothstep( 0.012, 0.016 + edge, depth );
+		foam = max( foam, 0.6 * ( 1.0 - smoothstep( 0.004, 0.008 + edge, abs( depth - 0.045 - 0.01 * sin( t * 1.1 ) ) ) ) );
+		foam *= ( 1.0 - land ) * uFoam;
+		col = mix( col, vec3( 1.0 ), foam );
+		planetRough = mix( planetRough, 0.6, foam );
+	}
+
 	// Panels: per-plate tone and roughness variation, darker grooves (cavity baked into Base Color), metallic plates.
 	if ( uPanels > 0.0 ) {
 		float groove = 1.0 - smoothstep( 0.0, uPanelSeam, seam );
@@ -374,8 +427,19 @@ if ( uPlanet > 0.5 ) {
 		vec3 facetCol = mix( mix( uLowColor, uMidColor, planetCell.z ), uHighColor, step( 0.8, planetCell.z ) );
 		col = mix( col, facetCol, uCellFacets );
 		vec2 dotR = planetDot();
-		float dotW = fwidth( planetCell.x ) + 1e-3;
-		float dotMask = ( 1.0 - smoothstep( dotR.x - dotW, dotR.x + dotW, planetCell.x ) ) * dotR.y * uCellDots;
+		float dotSd = planetCell.x - dotR.x; // signed distance to the dot edge, in cells
+		if ( uCellShape > 0.5 ) {
+			// Star or heart, drawn in the tangent plane at the cell centre with its top towards the north pole.
+			vec3 cdir = normalize( planetCellPoint - uSeed * 0.53 );
+			vec3 north = normalize( vec3( 0.0, 1.0, 0.0 ) - cdir * cdir.y + 1e-5 );
+			vec3 off = planetCellPos - planetCellPoint;
+			vec2 m = vec2( dot( off, cross( north, cdir ) ), dot( off, north ) ) / dotR.x;
+			dotSd = ( uCellShape < 1.5 ? planetStar( m ) : planetHeart( m ) ) * dotR.x;
+			// A cell whose centre is far above or below the surface would show a clipped motif: leave it empty.
+			dotR.y *= 1.0 - smoothstep( 0.22, 0.28, abs( dot( off, cdir ) ) );
+		}
+		float dotW = fwidth( dotSd ) + 1e-3;
+		float dotMask = ( 1.0 - smoothstep( - dotW, dotW, dotSd ) ) * dotR.y * uCellDots;
 		col = mix( col, uCellColor, dotMask );
 		planetRough = mix( planetRough, min( planetRough + 0.3, 1.0 ), dotMask );
 		col = mix( col, uCellColor, crack * uCellCracks * ( 1.0 - 0.7 * ice ) );
@@ -424,6 +488,15 @@ if ( uPlanet > 0.5 ) {
 		planetGlow += uNeonColor * ( uNeonGrid * lines * scan );
 	}
 
+	// Sparkle: glitter flakes that flash with the view angle, on the lit side only (UE: a tiling flake mask in Emissive).
+	if ( uSparkle > 0.0 ) {
+		vec3 sp = pos * 40.0;
+		vec3 sh = planetHash3( floor( sp ) );
+		float flake = 1.0 - smoothstep( 0.15, 0.4, length( fract( sp ) - 0.5 ) );
+		float flash = pow( max( 0.0, sin( dot( viewRay, sh * 2.0 - 1.0 ) * 20.0 + t * 1.5 + sh.x * PI2 ) ), 12.0 );
+		planetGlow += vec3( uSparkle * 3.0 * step( 0.8, sh.y ) * flake * flash * saturate( dot( n, sunObj ) * 2.0 + 0.3 ) );
+	}
+
 	// Nebula in glass: a spiral galaxy marched through the inside of the sphere, in the planet's equator plane.
 	// UE: Custom node with the same 12-step loop; the shell stays an opaque glossy surface, so nothing sorts.
 	if ( uNebula > 0.0 ) {
@@ -458,21 +531,27 @@ if ( uPlanet > 0.5 ) {
 	// City lights: clustered speckles on land; shown on the night side after the normal is known.
 	if ( uCityIntensity > 0.0 ) {
 		float region = smoothstep( 1.0 - uCityDensity, 1.3 - uCityDensity, planetNoise( p * 2.0 + 40.0 ) * 0.5 + 0.5 );
-		float speck = smoothstep( 0.55, 0.9, planetNoise( p * 25.0 ) * 0.5 + 0.5 );
+		// Round lights on a 3D grid, a random half of them lit: tidy toy lights, not noise glitter (UE: a tiling dot mask).
+		vec3 cg = pos * 22.0;
+		float speck = ( 1.0 - smoothstep( 0.18, 0.3, length( fract( cg ) - 0.5 ) ) ) * step( 0.5, planetHash3( floor( cg ) ).x );
 		planetCity = region * speck * land * ( 1.0 - ice );
 	}
 
 	if ( uCloudCover > 0.0 ) {
-		float cloud = planetClouds( pos, 4.0 );
+		float cloud = planetClouds( pos, min( uDetail, 4.0 ) );
 		// Cloud shadow: the cloud between this point and the sun (UE: second cloud sample offset by the MPC sun direction).
 		if ( uCloudShadow > 0.0 ) {
-			vec3 sunObj = normalize( transpose( uPlanetObjToView ) * uSunDirView );
 			float shade = planetClouds( pos + sunObj * 0.06, 2.0 ) * smoothstep( - 0.1, 0.2, dot( n, sunObj ) ); // soft: 2 octaves are enough
 			col *= 1.0 - uCloudShadow * 0.75 * shade * ( 1.0 - cloud );
 		}
-		col = mix( col, uCloudColor, cloud );
+		// Puff (toy look): a second tone on the side away from the sun, and the cloud is a raised piece with its own
+		// relief instead of a flat decal. UE: the same offset cloud sample that the shadow uses, mirrored.
+		float puff = saturate( uCloudPuff );
+		float cloudShade = puff > 0.0 ? 1.0 - planetClouds( pos - sunObj * 0.04, 2.0 ) : 0.0;
+		col = mix( col, uCloudColor * mix( vec3( 1.0 ), vec3( 0.68, 0.72, 0.95 ), cloudShade * puff ), cloud );
 		planetRough = mix( planetRough, 1.0, cloud );
-		planetRelief *= 1.0 - cloud;
+		planetReliefH = mix( planetReliefH, 1.0, cloud * puff );
+		planetRelief *= 1.0 - cloud * ( 1.0 - puff );
 		planetMetal *= 1.0 - cloud;
 		planetCity *= 1.0 - cloud;
 		planetGlow *= 1.0 - 0.8 * cloud;
@@ -501,12 +580,14 @@ if ( uPlanet > 0.5 ) {
 		if ( d.z > 0.0 ) {
 			vec2 f = d.xy;
 			float eyes = 0.0, shine = 0.0, blush = 0.0, wh = 0.0;
+			// Blink: the open eyes squash shut for about 0.25 s every 3.3 s (UE: a scalar from Time).
+			float eyeOpen = 1.0 - uBlink * ( 1.0 - smoothstep( 0.0, 0.04, abs( fract( t * 0.3 ) - 0.5 ) ) );
 			for ( int k = 0; k < 2; k ++ ) {
 				float sg = k == 0 ? 1.0 : - 1.0;
 				vec2 e = vec2( sg * 0.3, 0.06 );
 				if ( uFace < 1.5 ) {
-					eyes += planetEll( f, e, vec2( 0.075, 0.1 ), 0.15 );
-					shine += planetEll( f, e + vec2( 0.025, 0.035 ), vec2( 0.025 ), 0.3 );
+					eyes += planetEll( f, e, vec2( 0.075, 0.1 * mix( 0.1, 1.0, eyeOpen ) ), 0.15 );
+					shine += planetEll( f, e + vec2( 0.025, 0.035 ), vec2( 0.025 ), 0.3 ) * step( 0.9, eyeOpen );
 				} else if ( uFace < 2.5 ) eyes += planetArc( f, e + vec2( 0.0, 0.05 ), 0.08, 0.022 );
 				blush += planetEll( f, vec2( sg * 0.47, - 0.13 ), vec2( 0.12, 0.065 ), 0.4 );
 				for ( int j = 0; j < 3; j ++ ) {
@@ -531,7 +612,6 @@ if ( uPlanet > 0.5 ) {
 	// Ring shadow on the planet: the ring lies in the equator plane, so the shadow is a ray-plane test towards the sun.
 	// UE: the ring mesh (Masked) casts a real shadow; this term is not needed there.
 	if ( uRingShade.z > 0.0 ) {
-		vec3 sunObj = normalize( transpose( uPlanetObjToView ) * uSunDirView );
 		float ts = - pos.y / ( abs( sunObj.y ) > 1e-3 ? sunObj.y : 1e-3 );
 		float rq = length( pos + sunObj * ts );
 		float band = smoothstep( uRingShade.x, uRingShade.x + 0.04, rq ) * ( 1.0 - smoothstep( uRingShade.y - 0.04, uRingShade.y, rq ) ) * step( 0.0, ts );
@@ -616,7 +696,8 @@ if ( uPlanet > 0.5 ) {
 		float filmPhase = planetFilm * 2.5 + fres * 1.5 + uPlanetTime * 0.05;
 		vec3 rainbow = 0.5 + 0.5 * cos( PI2 * ( filmPhase + vec3( 0.0, 0.33, 0.67 ) ) );
 		// The hologram globe is a clear shell: no film colours.
-		totalEmissiveRadiance += rainbow * ( uBubble * ( 1.0 - saturate( uNeonGrid ) ) * ( 0.35 + 0.65 * fres ) * 0.8 );
+		// Film colours show on the rim and fade to almost nothing face-on, so the middle of a bubble stays clear.
+		totalEmissiveRadiance += rainbow * ( uBubble * ( 1.0 - saturate( uNeonGrid ) ) * ( 0.05 + 0.95 * fres ) * 0.7 );
 	}
 }
 `;
