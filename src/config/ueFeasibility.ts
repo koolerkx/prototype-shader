@@ -60,7 +60,12 @@ export function ueRating(
     if (planet.sparkle > 0) info.push('閃粉：Emissive 輸出，不受投影影響；建議使用平鋪閃片貼圖。');
     if (planet.atmoIntensity > 0) info.push('大氣：額外 Sphere + Additive 材質。');
     if (planet.orbitCount > 0 || planet.shieldIntensity > 0) info.push('軌道線／護盾：額外 mesh + Additive 材質。');
-    if (planet.surfaceEmissive > 0) info.push('Unlit Shading Model。');
+    if (planet.surfaceEmissive > 0 || planet.recipe === 6) info.push('Unlit Shading Model。');
+    if (planet.recipe > 0) info.push('v2.1 配方：整套 PBR 通道由程序化 Height 及遮罩產生；UE5 建議每款一個 Material Function，或在載入時烘焙成貼圖。');
+    if ([4, 5, 8, 9, 12, 13].includes(planet.recipe)) {
+      extra.push('配方使用 Voronoi（F1、F2−F1、格子中心）：Noise 節點不提供，需要 Custom (HLSL) 節點或烘焙貼圖。');
+    }
+    if ((planet.recipe === 2 || planet.recipe === 8) && material.fuzzAmount > 0) info.push('Fuzz 只在遮罩範圍（雲、圓點）生效：Fuzz 數量 × 遮罩。');
   }
   return { substrate: sub.length > 0, extra: extra.length > 0, notes: [...extra, ...sub, ...info] };
 }
