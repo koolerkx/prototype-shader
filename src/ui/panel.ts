@@ -91,6 +91,17 @@ export function createPanel(root: HTMLElement) {
       return el;
     },
 
+    /** Button spanning the control columns; `key` picks the tooltip. */
+    button(label: string, text: string, key: string, onClick: (b: HTMLButtonElement) => void) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = text;
+      b.addEventListener('click', () => onClick(b));
+      const el = row(label, key);
+      el.append(b);
+      return el;
+    },
+
     select<T extends object>(label: string, obj: T, key: KeysOf<T, string>, options: readonly string[], onChange: () => void) {
       const sel = document.createElement('select');
       for (const o of options) sel.add(new Option(o, o));

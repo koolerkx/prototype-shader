@@ -61,7 +61,8 @@ export const TOOLTIPS: Record<string, string> = {
   noiseScale: '地形 noise 的頻率。數值越高，大陸越細碎。',
   warp: 'Domain warp 的強度：扭曲 noise 的座標，令海岸線及雲帶出現漩渦形狀。',
   detail: 'fbm 的層數（octaves）。數值越高，細節越多，運算量亦越高。',
-  bump: '以地形高度計算的凹凸強度（UE: PerturbNormalHQ / DDX、DDY）。海面及雲層不受影響。',
+  bump: '高度起伏的強度，用於計算法線。1 = 起伏為半徑的 5%，所以外形仍然是圓的，只有明暗改變。法線與顏色使用同一個高度函數，所以兩者一致。海洋及岩漿是平面；雲層下沒有起伏（UE: Height → NormalFromHeightmap 或 bake 成 Normal Map）。',
+  flowSpeed: 'Domain warp 的動畫速度。數值越高，表面越像液體一樣流動。',
 
   // Planet: ocean and land
   seaLevel: '海平面高度。低於此高度為海洋。0 = 沒有海洋。',
@@ -80,6 +81,23 @@ export const TOOLTIPS: Record<string, string> = {
   bandFrequency: '條紋的數量。',
   bandTurbulence: '條紋的擾動強度。數值越高，條紋越彎曲。',
   bandSpeedDegPerSec: '條紋流動速度（度／秒）。赤道較快、兩極較慢，所以條紋會隨時間被拉長。',
+
+  marble: '大理石紋的比例：把高度摺成條紋，像攪拌中的顏料或牛奶。0 = 關閉。',
+  marbleFrequency: '大理石紋的條紋數量。',
+
+  // Planet: machine panels
+  panels: '機械面板的比例：表面切成一塊塊凸起的金屬板，接縫是凹槽。0 = 關閉。',
+  panelScale: '面板的密度（每個半徑的格數）。數值越高，面板越細。',
+  panelSeam: '接縫凹槽的闊度（以星球半徑計算）。凹槽的 Base Color 較暗，Roughness 較高。',
+  panelMetallic: '面板的 Metallic 值。其他地區使用 Material 的 Metallic。注意：planet 模式的環境光很弱，金屬面主要只反射太陽。',
+
+  // Planet: neon
+  neonColor: '霓虹光在低處的顏色。',
+  neonColorB: '霓虹光在高處的顏色（按高度在兩色之間漸變）。',
+  neonIntensity: '霓虹光的強度（Emissive）。0 = 關閉。',
+  neonSeams: '面板接縫發光的比例（需要 Panels > 0）。接縫只在掃過表面的窄光帶內發光。',
+  neonContours: '等高線的數量；等高線會發光並隨時間移動。0 = 關閉。',
+  neonSpeed: '霓虹光波動及等高線移動的速度。負數 = 反方向。',
 
   // Planet: clouds
   cloudCover: '雲層覆蓋率。0 = 沒有雲。',
@@ -109,6 +127,19 @@ export const TOOLTIPS: Record<string, string> = {
   ringOuter: '光環的外半徑（以星球半徑計算）。',
   ringColorA: '光環的內側顏色。',
   ringColorB: '光環的外側顏色。',
+
+  // Planet: orbit lines
+  copyPlanetName: '把目前選擇的星球預設名稱複製到剪貼簿。',
+  orbitCount: '軌道線的數量（0–3）。每條軌道的傾角及方向不同。',
+  orbitRadius: '第一條軌道的半徑（以星球半徑計算）。',
+  orbitSpacing: '軌道之間的距離（以星球半徑計算）。',
+  orbitInclinationDeg: '軌道的傾斜角度（度）。三條軌道使用不同比例的傾角，所以會互相交叉。',
+  orbitColor: '第一及第三條軌道的顏色。',
+  orbitColorB: '第二條軌道的顏色。',
+  orbitIntensity: '軌道線的亮度（加法混合的 Emissive）。0 = 隱藏。',
+  orbitSpeedDegPerSec: '光脈衝沿軌道移動的速度（度／秒）。相鄰軌道方向相反，外圈較慢（UE: Panner）。',
+  orbitPulses: '每條軌道上光脈衝的數量。',
+  orbitPulseLength: '光脈衝尾巴的長度（以脈衝之間的距離計算）。',
 
   // Lighting
   sunColor: '太陽光（Directional Light）的顏色。',

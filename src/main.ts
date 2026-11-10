@@ -11,7 +11,8 @@ import {
 import { createPlanetGeometry, createPrimitive } from './geometry/primitives';
 import { applyDefaultLit, createDefaultLit } from './materials/defaultLit';
 import {
-  addPlanetLayer, applyAtmosphere, applyPlanet, applyRing, createAtmosphere, createRing, updatePlanetFrame,
+  addPlanetLayer, applyAtmosphere, applyOrbits, applyPlanet, applyRing, createAtmosphere, createOrbits, createRing,
+  updateOrbits, updatePlanetFrame, updatePlanetView,
 } from './materials/planet';
 import { addStylizedLayer, applyStylized, setStylizedBounds, updateStylizedView } from './materials/stylized';
 import { createPanel } from './ui/panel';
@@ -91,6 +92,8 @@ const atmosphere = createAtmosphere(); // child of the mesh: spins and tilts wit
 mesh.add(atmosphere);
 const ring = createRing(); // child of the pivot: tilts with the axis, does not spin
 pivot.add(ring);
+const orbits = createOrbits(); // child of the pivot: own inclinations, do not spin with the surface
+pivot.add(orbits);
 const localCenter = new THREE.Vector3();
 const meshCenter = new THREE.Vector3(); // world space, per frame
 const sunDir = new THREE.Vector3();
@@ -145,11 +148,13 @@ function applyPlanetParams() {
   applyPlanet(planetUniforms, planetParams);
   applyAtmosphere(atmosphere, planetParams, sceneParams.planetShape === 'ellipsoid' ? PLANET_VIEW.ellipsoidY : 1);
   applyRing(ring, planetParams);
+  applyOrbits(orbits, planetParams);
   planetUniforms.uPlanet.value = planet ? 1 : 0;
   pivot.position.y = planet ? PLANET_VIEW.centerY : 0;
   pivot.rotation.z = planet ? planetParams.tiltDeg * DEG2RAD : 0;
   atmosphere.visible = planet;
   ring.visible = planet && planetParams.ringOpacity > 0;
+  orbits.visible = planet;
 }
 function applyAppMode() {
   modeParams[activeMode] = { material: { ...matParams }, stylized: { ...styleParams }, light: { ...lightParams } };
@@ -209,6 +214,30 @@ ui.select('Planet Preset', planetPresetParams, 'planetPreset', PLANET_PRESET_NAM
   showModeControls();
   ui.refresh();
 });
+ui.button('Planet Name', 'Copy name', 'copyPlanetName', (b) => {
+  const show = (text: string) => {
+    b.textContent = text;
+    setTimeout(() => (b.textContent = 'Copy name'), 1200);
+  };
+  const name = planetPresetParams.planetPreset;
+  navigator.clipboard.writeText(name).then(
+    () => show(`Copied: ${name}`),
+    () => show(copyWithTextarea(name) ? `Copied: ${name}` : 'Copy failed'),
+  );
+});
+
+// Fallback for pages where the Clipboard API is blocked (embedded or permission-restricted browsers).
+function copyWithTextarea(text: string): boolean {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.append(ta);
+  ta.select();
+  const ok = document.execCommand('copy');
+  ta.remove();
+  return ok;
+}
 
 planetOnly.push(ui.section('Planet · Shape & Motion'));
 ui.select('Planet Shape', sceneParams, 'planetShape', PLANET_SHAPES, () => {
@@ -224,7 +253,8 @@ ui.range('Seed', planetParams, 'seed', RANGES.seed, applyPlanetParams);
 ui.range('Noise Scale', planetParams, 'noiseScale', RANGES.noiseScale, applyPlanetParams);
 ui.range('Warp', planetParams, 'warp', RANGES.warp, applyPlanetParams);
 ui.range('Detail', planetParams, 'detail', RANGES.detail, applyPlanetParams);
-ui.range('Bump', planetParams, 'bump', RANGES.bump, applyPlanetParams);
+ui.range('Flow Speed', planetParams, 'flowSpeed', RANGES.flowSpeed, applyPlanetParams);
+ui.range('Height (Bump)', planetParams, 'bump', RANGES.bump, applyPlanetParams);
 
 planetOnly.push(ui.section('Planet · Ocean & Land'));
 ui.range('Sea Level', planetParams, 'seaLevel', RANGES.unit, applyPlanetParams);
@@ -238,11 +268,27 @@ ui.range('Land Rough.', planetParams, 'landRoughness', RANGES.unit, applyPlanetP
 ui.range('Polar Cap', planetParams, 'polarCap', RANGES.unit, applyPlanetParams);
 ui.color('Ice Color', planetParams, 'iceColor', applyPlanetParams);
 
-planetOnly.push(ui.section('Planet · Bands', false));
+planetOnly.push(ui.section('Planet · Bands & Marble', false));
 ui.range('Bands', planetParams, 'bands', RANGES.unit, applyPlanetParams);
 ui.range('Band Frequency', planetParams, 'bandFrequency', RANGES.bandFrequency, applyPlanetParams);
 ui.range('Band Turbulence', planetParams, 'bandTurbulence', RANGES.bandTurbulence, applyPlanetParams);
 ui.range('Band Speed °/s', planetParams, 'bandSpeedDegPerSec', RANGES.degPerSec, applyPlanetParams);
+ui.range('Marble', planetParams, 'marble', RANGES.unit, applyPlanetParams);
+ui.range('Marble Frequency', planetParams, 'marbleFrequency', RANGES.marbleFrequency, applyPlanetParams);
+
+planetOnly.push(ui.section('Planet · Machine Panels', false));
+ui.range('Panels', planetParams, 'panels', RANGES.unit, applyPlanetParams);
+ui.range('Panel Scale', planetParams, 'panelScale', RANGES.panelScale, applyPlanetParams);
+ui.range('Panel Seam', planetParams, 'panelSeam', RANGES.panelSeam, applyPlanetParams);
+ui.range('Panel Metallic', planetParams, 'panelMetallic', RANGES.unit, applyPlanetParams);
+
+planetOnly.push(ui.section('Planet · Neon', false));
+ui.color('Neon Color', planetParams, 'neonColor', applyPlanetParams);
+ui.color('Neon Color B', planetParams, 'neonColorB', applyPlanetParams);
+ui.range('Neon Intensity', planetParams, 'neonIntensity', RANGES.neonIntensity, applyPlanetParams);
+ui.range('Neon Seams', planetParams, 'neonSeams', RANGES.unit, applyPlanetParams);
+ui.range('Neon Contours', planetParams, 'neonContours', RANGES.neonContours, applyPlanetParams);
+ui.range('Neon Speed', planetParams, 'neonSpeed', RANGES.neonSpeed, applyPlanetParams);
 
 planetOnly.push(ui.section('Planet · Clouds'));
 ui.range('Cloud Cover', planetParams, 'cloudCover', RANGES.unit, applyPlanetParams);
@@ -272,6 +318,18 @@ ui.range('Ring Inner', planetParams, 'ringInner', RANGES.ringRadius, applyPlanet
 ui.range('Ring Outer', planetParams, 'ringOuter', RANGES.ringRadius, applyPlanetParams);
 ui.color('Ring Color A', planetParams, 'ringColorA', applyPlanetParams);
 ui.color('Ring Color B', planetParams, 'ringColorB', applyPlanetParams);
+
+planetOnly.push(ui.section('Planet · Orbit Lines', false));
+ui.range('Orbit Count', planetParams, 'orbitCount', RANGES.orbitCount, applyPlanetParams);
+ui.range('Orbit Radius', planetParams, 'orbitRadius', RANGES.orbitRadius, applyPlanetParams);
+ui.range('Orbit Spacing', planetParams, 'orbitSpacing', RANGES.orbitSpacing, applyPlanetParams);
+ui.range('Orbit Incline°', planetParams, 'orbitInclinationDeg', RANGES.orbitInclinationDeg, applyPlanetParams);
+ui.color('Orbit Color', planetParams, 'orbitColor', applyPlanetParams);
+ui.color('Orbit Color B', planetParams, 'orbitColorB', applyPlanetParams);
+ui.range('Orbit Intensity', planetParams, 'orbitIntensity', RANGES.orbitIntensity, applyPlanetParams);
+ui.range('Pulse Speed °/s', planetParams, 'orbitSpeedDegPerSec', RANGES.orbitSpeedDegPerSec, applyPlanetParams);
+ui.range('Pulse Count', planetParams, 'orbitPulses', RANGES.orbitPulses, applyPlanetParams);
+ui.range('Pulse Length', planetParams, 'orbitPulseLength', RANGES.orbitPulseLength, applyPlanetParams);
 
 ui.section('Material (Default Lit)');
 ui.select('Mode', styleParams, 'mode', MATERIAL_MODES, () => {
@@ -376,6 +434,8 @@ renderer.setAnimationLoop((t) => {
   camera.updateMatrixWorld();
   updateStylizedView(styleUniforms, sunDir, meshCenter, camera);
   updatePlanetFrame(atmosphere, ring, sunDir, sun, meshCenter);
+  updatePlanetView(planetUniforms, mesh, camera);
+  updateOrbits(orbits, planetTime);
   renderer.clear();
   renderer.render(scene, camera);
   viewHelper.render(renderer);

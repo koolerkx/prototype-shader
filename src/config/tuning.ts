@@ -125,6 +125,7 @@ export const PLANET_VIEW = {
   ellipsoidY: 0.8, // polar scale of the ellipsoid
   ringMin: 1.1, // ring mesh extent, in planet radii; the shader cuts the visible band inside it
   ringMax: 3.2,
+  orbitTube: 0.004, // orbit line thickness, world units
   spaceBackground: '#0b0d1a',
   skyIntensity: 0.03, // the room IBL would light the night side; space has almost no sky light
 };
@@ -139,7 +140,8 @@ export const PLANET_DEFAULTS = {
   noiseScale: 1.6,
   warp: 0.35,
   detail: 5, // fbm octaves
-  bump: 1,
+  flowSpeed: 0.03, // domain-warp animation; high values make the surface flow like a liquid
+  bump: 1, // height relief for the normal; 1 = 5% of the radius
   // Ocean and land: height ramp below / above sea level
   seaLevel: 0.5, // 0 = no ocean
   deepColor: '#24407a',
@@ -156,6 +158,14 @@ export const PLANET_DEFAULTS = {
   bandFrequency: 6,
   bandTurbulence: 0.6,
   bandSpeedDegPerSec: 4, // equator speed; poles are slower
+  // Marble: folds the height into stripes (stirred paint / milk)
+  marble: 0,
+  marbleFrequency: 6,
+  // Machine panels: raised plates on a 3D lattice, grooved seams
+  panels: 0,
+  panelScale: 8, // lattice cells per radius
+  panelSeam: 0.012, // groove width, in planet radii
+  panelMetallic: 0.8,
   // Clouds
   cloudCover: 0,
   cloudSoftness: 0.08,
@@ -171,6 +181,13 @@ export const PLANET_DEFAULTS = {
   cityColor: '#ffc070',
   cityIntensity: 0,
   cityDensity: 0.4,
+  // Neon: emissive panel seams and height contour lines
+  neonColor: '#ff3fd8', // low areas
+  neonColorB: '#3ff0ff', // high areas
+  neonIntensity: 0,
+  neonSeams: 1,
+  neonContours: 0, // contour lines over the full height range; 0 = off
+  neonSpeed: 2,
   // Atmosphere shell (UE: translucent additive mesh)
   atmoColor: '#7fd8ff',
   atmoIntensity: 1,
@@ -181,6 +198,17 @@ export const PLANET_DEFAULTS = {
   ringOuter: 2.4,
   ringColorA: '#fff0f6',
   ringColorB: '#b9a4ff',
+  // Orbit lines with neon pulses (UE: additive mesh, Panner on U)
+  orbitCount: 0,
+  orbitRadius: 1.6, // in planet radii
+  orbitSpacing: 0.35,
+  orbitInclinationDeg: 25,
+  orbitColor: '#7fd8ff',
+  orbitColorB: '#ff7ad8', // used by the second orbit
+  orbitIntensity: 1,
+  orbitSpeedDegPerSec: 45,
+  orbitPulses: 2,
+  orbitPulseLength: 0.35, // fraction of the gap between pulses
 };
 
 export type PlanetPreset = Preset & { planet?: Partial<typeof PLANET_DEFAULTS> };
@@ -214,7 +242,7 @@ export const PLANET_PRESETS = {
   },
   'Magma Core': {
     planet: {
-      seaLevel: 0, lowColor: '#1a1016', midColor: '#3a2228', highColor: '#5e4040', landRoughness: 0.9, bump: 2, warp: 0.6, noiseScale: 1.4,
+      seaLevel: 0, lowColor: '#1a1016', midColor: '#3a2228', highColor: '#5e4040', landRoughness: 0.9, bump: 1.2, warp: 0.6, noiseScale: 1.4,
       glowColor: '#ff5a1f', glowIntensity: 3, glowLevel: 0.3, glowCracks: 1, glowPulse: 0.6,
       atmoColor: '#ff6a3a', atmoIntensity: 0.7,
     },
@@ -242,6 +270,7 @@ export const PLANET_PRESETS = {
       cloudCover: 0.35, cloudSoftness: 0.2, cloudColor: '#e8eef5',
       cityColor: '#ffb35a', cityIntensity: 4, cityDensity: 0.45,
       atmoColor: '#4fb6ff', atmoIntensity: 1.5, atmoThickness: 0.08,
+      orbitCount: 2, orbitColor: '#7fd8ff', orbitColorB: '#ffb35a', orbitIntensity: 0.8, orbitPulses: 1,
     },
     stylized: {
       ...PLANET_STYLE, shadeColor: '#3a4aff', shadeStrength: 0.1, terminatorColor: '#ff7a4a', terminatorIntensity: 0.25,
@@ -250,7 +279,7 @@ export const PLANET_PRESETS = {
   },
   'Desert Dune': {
     planet: {
-      seaLevel: 0, bands: 0.35, bandFrequency: 10, bandSpeedDegPerSec: 0, warp: 1.2, bump: 1.5,
+      seaLevel: 0, bands: 0.35, bandFrequency: 10, bandSpeedDegPerSec: 0, warp: 1.2, bump: 1,
       lowColor: '#c9733a', midColor: '#f0a35a', highColor: '#ffe1a8', polarCap: 0.1, iceColor: '#fff4e0',
       cloudCover: 0.1, atmoColor: '#ffb37a', atmoIntensity: 0.9,
     },
@@ -269,6 +298,74 @@ export const PLANET_PRESETS = {
     stylized: {
       ...PLANET_STYLE, shadeColor: '#7b2cff', shadeStrength: 0.4, terminatorColor: '#c8ff4a', terminatorIntensity: 0.3,
       rimColor: '#d6a8ff', rimIntensity: 0.6, rimLightSide: 0.3,
+    },
+  },
+  'Cyberpunk Megacity': {
+    planet: {
+      seaLevel: 0.42, deepColor: '#07051a', shallowColor: '#1a0f3d', lowColor: '#1b1830', midColor: '#2c2547',
+      highColor: '#4a3d6b', landRoughness: 0.45, oceanRoughness: 0.08,
+      panels: 0.6, panelScale: 14, panelSeam: 0.006, panelMetallic: 0.6,
+      cityColor: '#ff4fd8', cityIntensity: 6, cityDensity: 0.6,
+      neonColor: '#ff3fd8', neonColorB: '#3ff0ff', neonIntensity: 3, neonSeams: 0.6,
+      cloudCover: 0.15, cloudColor: '#6a5a9a', atmoColor: '#ff4fd8', atmoIntensity: 1.2,
+      orbitCount: 3, orbitColor: '#3ff0ff', orbitColorB: '#ff3fd8', orbitIntensity: 1.5, orbitPulses: 3,
+    },
+    stylized: {
+      ...PLANET_STYLE, shadeColor: '#3a1aff', shadeStrength: 0.3, terminatorColor: '#ff3f8a', terminatorIntensity: 0.3,
+      rimColor: '#3ff0ff', rimIntensity: 0.6, rimLightSide: -0.3,
+    },
+  },
+  'Machine Star': {
+    planet: {
+      seaLevel: 0, lowColor: '#5a6170', midColor: '#8a919e', highColor: '#c9ced8', landRoughness: 0.4, warp: 0.3,
+      panels: 1, panelScale: 6, panelSeam: 0.006, panelMetallic: 0.85, bump: 1.2,
+      neonColor: '#5fd8ff', neonColorB: '#5fd8ff', neonIntensity: 3, neonSeams: 1, neonSpeed: 1.5,
+      cityColor: '#9fe8ff', cityIntensity: 2, cityDensity: 0.5, atmoColor: '#5fd8ff', atmoIntensity: 0.3,
+      orbitCount: 2, orbitColor: '#5fd8ff', orbitColorB: '#ffb35a', orbitRadius: 1.5, orbitPulses: 4,
+      orbitPulseLength: 0.2, orbitSpeedDegPerSec: 90,
+    },
+    material: { clearCoat: 0.5, clearCoatRoughness: 0.1 },
+    stylized: {
+      ...PLANET_STYLE, shadeColor: '#4a5aff', shadeStrength: 0.2, terminatorColor: '#ff9a6a', terminatorIntensity: 0.15,
+      terminatorWidth: 0.12, rimColor: '#9fe8ff', rimIntensity: 0.6, rimLightSide: -0.6,
+    },
+  },
+  'Neon Synthwave': {
+    planet: {
+      seaLevel: 0, noiseScale: 1.2, detail: 3, lowColor: '#120a2a', midColor: '#1d1040', highColor: '#2a1650',
+      landRoughness: 0.3, neonColor: '#ff3fa8', neonColorB: '#3fe8ff', neonIntensity: 2, neonContours: 8,
+      neonSpeed: 3, atmoColor: '#ff3fa8', atmoIntensity: 1.5,
+      orbitCount: 2, orbitColor: '#3fe8ff', orbitColorB: '#ff3fa8', orbitInclinationDeg: 15, orbitIntensity: 1.5,
+    },
+    material: { clearCoat: 0.8, clearCoatRoughness: 0.08 },
+    stylized: {
+      ...PLANET_STYLE, shadeColor: '#5a1aff', shadeStrength: 0.4, terminatorColor: '#ff3fa8', terminatorIntensity: 0.3,
+      rimColor: '#ff7ad8', rimIntensity: 0.8, rimLightSide: 0,
+    },
+  },
+  'Liquid Pearl': {
+    planet: {
+      seaLevel: 0, noiseScale: 1.5, detail: 3, warp: 1.2, flowSpeed: 0.25, bump: 1.2,
+      lowColor: '#9aa3b8', midColor: '#c9cfe0', highColor: '#eef0ff', landRoughness: 0.08,
+      atmoColor: '#d6a8ff', atmoIntensity: 0.8,
+    },
+    // Low metallic: planet mode has almost no sky light, so a full metal would only reflect the sun.
+    material: { metallic: 0.2, clearCoat: 1, clearCoatRoughness: 0.05, thinFilm: 0.7, thinFilmThicknessNm: 450 },
+    stylized: {
+      ...PLANET_STYLE, shadeColor: '#7b5cff', shadeStrength: 0.3, terminatorColor: '#ff9ad8', terminatorIntensity: 0.3,
+      rimColor: '#d6a8ff', rimIntensity: 0.7, rimWidth: 0.3,
+    },
+  },
+  'Strawberry Milk': {
+    planet: {
+      seaLevel: 0, noiseScale: 1.2, detail: 2, warp: 1, flowSpeed: 0.12, marble: 1, marbleFrequency: 3, bump: 0.3,
+      lowColor: '#ff8fb8', midColor: '#fff0f5', highColor: '#ff5c93', landRoughness: 0.3,
+      atmoColor: '#ffb8d6', atmoIntensity: 1, orbitCount: 1, orbitColor: '#ffffff', orbitIntensity: 0.8,
+    },
+    material: { clearCoat: 1, clearCoatRoughness: 0.05, subsurfaceColor: '#5a1a2a', subsurfaceOpacity: 0.4 },
+    stylized: {
+      ...PLANET_STYLE, shadeColor: '#b45cff', shadeStrength: 0.35, terminatorColor: '#ff7a8a', terminatorIntensity: 0.4,
+      rimColor: '#ffffff', rimIntensity: 0.5, rimWidth: 0.25,
     },
   },
 } satisfies Record<string, PlanetPreset>;
@@ -330,6 +427,21 @@ export const RANGES: Record<string, Range> = {
   atmoIntensity: { min: 0, max: 5, step: 0.01 },
   atmoThickness: { min: 0.01, max: 0.5, step: 0.005 },
   ringRadius: { min: 1.1, max: 3.2, step: 0.01 },
+  flowSpeed: { min: 0, max: 1, step: 0.005 },
+  marbleFrequency: { min: 1, max: 30, step: 0.1 },
+  panelScale: { min: 2, max: 30, step: 0.1 },
+  panelSeam: { min: 0.002, max: 0.05, step: 0.001 },
+  neonIntensity: { min: 0, max: 20, step: 0.1 },
+  neonContours: { min: 0, max: 40, step: 1 },
+  neonSpeed: { min: -10, max: 10, step: 0.1 },
+  orbitCount: { min: 0, max: 3, step: 1 },
+  orbitRadius: { min: 1.1, max: 4, step: 0.01 },
+  orbitSpacing: { min: 0, max: 1, step: 0.01 },
+  orbitInclinationDeg: { min: 0, max: 90, step: 0.5 },
+  orbitIntensity: { min: 0, max: 10, step: 0.1 },
+  orbitSpeedDegPerSec: { min: -360, max: 360, step: 1 },
+  orbitPulses: { min: 1, max: 12, step: 1 },
+  orbitPulseLength: { min: 0.05, max: 1, step: 0.01 },
 };
 
 export const VIEW = {
