@@ -9,7 +9,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { GALLERY_PRESETS } from './config/galleryPresets';
 import {
-  APP_MODES, ATTACHMENTS, DEG2RAD, LIGHT_DEFAULTS, MATERIAL_DEFAULTS, MATERIAL_MODES, PLANET_DEFAULT_PRESET, PLANET_DEFAULTS,
+  APP_MODES, ATTACHMENTS, CHANNEL_VIEWS, DEG2RAD, LIGHT_DEFAULTS, MATERIAL_DEFAULTS, MATERIAL_MODES, PLANET_DEFAULT_PRESET, PLANET_DEFAULTS,
   PLANET_PRESETS, PLANET_SHAPES, PLANET_VIEW, PRESET_NAMES, PRESETS, RANGES, SCENE_DEFAULTS, SHAPES,
   STYLIZED_DEFAULTS, TONE_MAPPINGS, VIEW, type AppMode, type PlanetPreset, type PlanetShapeName,
   type Preset, type PresetName, type ToneMappingName,
@@ -553,6 +553,12 @@ ui.range('Scan On Select', planetParams, 'scanOnSelect', RANGES.toggle, applyPla
 
 // --- Tabs: Surface, FX, Space (planet only) ---
 const planetTabs = [ui.tab('Surface')];
+// View setting, not part of presets: shows one PBR channel of the planet surface.
+const channelParams = { channel: 'final' as string };
+const channelIndex = () => CHANNEL_VIEWS.indexOf(channelParams.channel as (typeof CHANNEL_VIEWS)[number]);
+ui.section('Recipe');
+ui.range('Recipe v2.1', planetParams, 'recipe', RANGES.recipe, applyPlanetParams);
+ui.select('Channel View', channelParams, 'channel', CHANNEL_VIEWS, () => (planetUniforms.uChannelView.value = channelIndex()));
 ui.section('Terrain');
 ui.range('Seed', planetParams, 'seed', RANGES.seed, applyPlanetParams);
 ui.range('Noise Scale', planetParams, 'noiseScale', RANGES.noiseScale, applyPlanetParams);
@@ -891,6 +897,7 @@ const gallery = createGallery<SavedState>(document.getElementById('app')!, rende
       light: { ...lightParams }, modes: structuredClone(modeParams), activeMode, morph: { ...morph },
     };
     scanPlaying = false;
+    planetUniforms.uChannelView.value = 0; // thumbnails always show the final view
   },
   end() {
     const s = snapshot!;
@@ -907,6 +914,7 @@ const gallery = createGallery<SavedState>(document.getElementById('app')!, rende
     showModeControls();
     ui.refresh();
     scanPlaying = s.scanPlaying;
+    planetUniforms.uChannelView.value = channelIndex();
     if (!gallery.isFull()) drawFrame(); // the thumbnail used a corner of the canvas: repaint before the browser presents
   },
   pick(state) {
@@ -916,7 +924,7 @@ const gallery = createGallery<SavedState>(document.getElementById('app')!, rende
   },
 });
 
-const GALLERY_ORDER = ['Planets', 'Polyhedra v5.0', 'Toy Squadron v4.0', 'Cat-Ear v1.0', 'Pure Toon v1.0', 'Stylized PBR v2.0', 'New Ideas v3.0', 'Material'];
+const GALLERY_ORDER = ['Planets', 'Polyhedra v5.0', 'Toy Squadron v4.0', 'Cat-Ear v1.0', 'Pure Toon v1.0', 'Stylized PBR v2.0', 'Stylized PBR v2.1', 'New Ideas v3.0', 'Material'];
 
 /** Fills the gallery: planet presets under their group heading, user presets, then material presets. */
 function showGallery() {
@@ -995,7 +1003,8 @@ renderer.setAnimationLoop((t) => {
 
 function drawFrame() {
   updateFrame(camera);
-  if (lightParams.bloomStrength > 0) viewBloom.render();
+  // A channel view writes display values, so it must not pass through Bloom and the output pass.
+  if (lightParams.bloomStrength > 0 && planetUniforms.uChannelView.value === 0) viewBloom.render();
   else {
     renderer.clear();
     renderer.render(scene, camera);

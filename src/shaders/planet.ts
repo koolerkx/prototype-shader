@@ -1,4 +1,5 @@
 import { PLANET_VIEW } from '../config/tuning';
+import { RECIPE_ALBEDO, RECIPE_FUNCTIONS } from './planetRecipe';
 
 // Planet surface: patched into the same MeshPhysicalMaterial as the stylized layer, so UE lighting, the built-in
 // layers and the NPR layer all still apply. It only drives material inputs: Base Color, Roughness, Normal, Emissive.
@@ -330,6 +331,17 @@ float planetClouds( vec3 pos, float octaves ) {
 	float c = saturate( planetFbm( cp + cw * 0.5, octaves ) * 0.8 + 0.5 );
 	return smoothstep( 1.0 - uCloudCover, 1.0 - uCloudCover + uCloudSoftness + 1e-3, c );
 }
+
+// Ring shadow on the planet, 0..0.7: the ring lies in the equator plane, so it is a ray-plane test towards the sun.
+// UE: the ring mesh (Masked) casts a real shadow; this term is not needed there.
+float planetRingShadow( vec3 pos, vec3 sunObj ) {
+	if ( uRingShade.z <= 0.0 ) return 0.0;
+	float ts = - pos.y / ( abs( sunObj.y ) > 1e-3 ? sunObj.y : 1e-3 );
+	float rq = length( pos + sunObj * ts );
+	float band = smoothstep( uRingShade.x, uRingShade.x + 0.04, rq ) * ( 1.0 - smoothstep( uRingShade.y - 0.04, uRingShade.y, rq ) ) * step( 0.0, ts );
+	return 0.7 * uRingShade.z * band;
+}
+${RECIPE_FUNCTIONS}
 `;
 
 // After <color_fragment>, before the stylized albedo gradient. Writes Base Color and the values later blocks use.
@@ -342,7 +354,11 @@ float planetCity = 0.0;
 float planetFilm = 0.5; // thin-film thickness 0..1, follows the height
 float planetAO = 1.0; // from the height: cavities are occluded
 vec3 planetGlow = vec3( 0.0 );
-if ( uPlanet > 0.5 ) {
+float planetFuzz = 1.0; // Fuzz mask: the Fuzz amount of the material applies only where this is 1
+vec3 planetFacetN = vec3( 0.0 ); // object-space facet normal; zero = none
+vec3 planetAlbedoOut = vec3( 0.0 ); // for the channel view
+${RECIPE_ALBEDO}
+if ( uPlanet > 0.5 && uRecipe < 0.5 ) {
 	vec3 pos = vPlanetObj * uPlanetInvRadius;
 	vec3 n = normalize( vPlanetObjN );
 	float t = uPlanetTime;
@@ -609,14 +625,8 @@ if ( uPlanet > 0.5 ) {
 		}
 	}
 
-	// Ring shadow on the planet: the ring lies in the equator plane, so the shadow is a ray-plane test towards the sun.
-	// UE: the ring mesh (Masked) casts a real shadow; this term is not needed there.
-	if ( uRingShade.z > 0.0 ) {
-		float ts = - pos.y / ( abs( sunObj.y ) > 1e-3 ? sunObj.y : 1e-3 );
-		float rq = length( pos + sunObj * ts );
-		float band = smoothstep( uRingShade.x, uRingShade.x + 0.04, rq ) * ( 1.0 - smoothstep( uRingShade.y - 0.04, uRingShade.y, rq ) ) * step( 0.0, ts );
-		col *= 1.0 - 0.7 * uRingShade.z * band;
-	}
+	col *= 1.0 - planetRingShadow( pos, sunObj );
+	planetAlbedoOut = col;
 
 	// Unlit surface (star): the colour is emitted and the lit Base Color goes black.
 	if ( uSurfaceEmissive > 0.0 ) {
@@ -646,7 +656,7 @@ if ( uPlanet > 0.5 ) roughnessFactor = planetRough;
 
 // After <metalnessmap_fragment>: panels take their own metallic; the rest keeps the Material slider.
 export const PLANET_METALNESS = /* glsl */ `
-if ( uPlanet > 0.5 ) metalnessFactor = mix( metalnessFactor, uPanelMetallic, planetMetal );
+if ( uPlanet > 0.5 ) metalnessFactor = mix( metalnessFactor, uRecipe > 0.5 ? 1.0 : uPanelMetallic, planetMetal );
 `;
 
 // After <aomap_fragment>: the same occlusion three applies for an AO map.
@@ -680,6 +690,7 @@ if ( uPlanet > 0.5 && uCellFacets > 0.0 ) {
 	vec3 facetN = normalize( ( planetCellPoint - uSeed * 0.53 ) / uCellScale ) + ( planetHash3( planetCell.zzz * vec3( 91.0, 7.0, 13.0 ) ) - 0.5 ) * 0.5;
 	normal = normalize( mix( normal, normalize( uPlanetObjToView * facetN ), uCellFacets ) );
 }
+if ( uPlanet > 0.5 && dot( planetFacetN, planetFacetN ) > 0.0 ) normal = normalize( uPlanetObjToView * planetFacetN );
 `;
 
 // After <emissivemap_fragment>. City lights use the sun direction from the stylized layer (UE: MPC).
@@ -707,6 +718,9 @@ if ( uPlanet > 0.5 ) {
 export const PLANET_FILM = /* glsl */ `
 #ifdef USE_IRIDESCENCE
 if ( uPlanet > 0.5 ) material.iridescenceThickness = mix( iridescenceThicknessMinimum, iridescenceThicknessMaximum, planetFilm );
+#endif
+#ifdef USE_SHEEN
+if ( uPlanet > 0.5 ) material.sheenColor *= planetFuzz; // UE: Fuzz amount * mask
 #endif
 `;
 

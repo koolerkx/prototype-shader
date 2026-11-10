@@ -6,6 +6,7 @@ import {
   PLANET_AO, PLANET_FILM, PLANET_METALNESS, PLANET_NORMAL, PLANET_ROUGHNESS, PLANET_UNIFORMS, PLANET_VERTEX, PLANET_VERTEX_PARS,
   RING_FRAGMENT, RING_VERTEX, SHIELD_FRAGMENT, SHIELD_VERTEX,
 } from '../shaders/planet';
+import { PLANET_CHANNEL } from '../shaders/planetRecipe';
 import { after, replaceOnce } from './stylized';
 
 export type PlanetParams = typeof PLANET_DEFAULTS;
@@ -21,6 +22,8 @@ const createUniforms = () => ({
   uScanRange: { value: new THREE.Vector2(-1, 1) }, // object-space y range of the current shape
   uScanColor: { value: new THREE.Color() },
   uScanWidth: { value: 0.1 },
+  uRecipe: { value: 0 },
+  uChannelView: { value: 0 }, // debug view, set by the panel; not a preset param
   uSeed: { value: 0 },
   uNoiseScale: { value: 1 },
   uWarp: { value: 0 },
@@ -127,6 +130,7 @@ export function addPlanetLayer(m: THREE.MeshPhysicalMaterial): PlanetUniforms {
     fs = after(fs, '#include <lights_physical_fragment>', PLANET_FILM);
     fs = after(fs, '#include <aomap_fragment>', PLANET_AO);
     fs = after(fs, '#include <opaque_fragment>', PLANET_ALPHA);
+    fs = after(fs, '#include <colorspace_fragment>', PLANET_CHANNEL);
     shader.fragmentShader = fs;
   };
   return uniforms;

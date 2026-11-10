@@ -1,7 +1,7 @@
 import { PLANET_STYLE, type MATERIAL_DEFAULTS, type PLANET_DEFAULTS, type PlanetPreset, type STYLIZED_DEFAULTS } from './tuning';
 
 // Gallery presets ported from the four design canvases (values there are examples, so these are starting points):
-//   Stylized PBR v2.0 (15), Pure Toon v1.0 (12, the same surfaces with a fully stepped diffuse),
+//   Stylized PBR v2.1 (15, the v2.0 canvas recipes ported one to one), Stylized PBR v2.0 (15, parametric), Pure Toon v1.0 (12, the same surfaces with a fully stepped diffuse),
 //   New Ideas v3.0 (9) and Cat-Ear v1.0 (9).
 
 type Planet = Partial<typeof PLANET_DEFAULTS>;
@@ -151,6 +151,77 @@ const SURFACES: Record<string, Surface> = {
 const stylizedPbr = Object.entries(SURFACES).map(([name, s]): [string, PlanetPreset] => [name, {
   group: 'Stylized PBR v2.0', planet: s.planet, material: s.material, light: s.light,
   stylized: look(s.toon, s.shade, s.rim, s.stylized),
+}]);
+
+// --- Stylized PBR v2.1: the 15 recipes of the v2.0 canvas, each with its full procedural channel set
+// (src/shaders/planetRecipe.ts). No toon mix: UE lighting, the shading layers and the Fresnel rim only.
+// a / b / c are the canvas colours A / B / C. The order is the recipe id (1..15). ---
+type Recipe = { a: string; b: string; c: string; rim: string; seed: number; planet?: Planet; material?: Material; stylized?: Stylized };
+
+const RECIPES: Record<string, Recipe> = {
+  Terraced: { a: '#7fc8a9', b: '#f2c57c', c: '#e58f8f', rim: '#bfe6ff', seed: 3 },
+  Earthlike: {
+    a: '#3a7bd5', b: '#6cc66c', c: '#f4f8ff', rim: '#9fd8ff', seed: 4,
+    material: { fuzzAmount: 1, fuzzColor: '#ffffff' }, // clouds only (shader mask)
+  },
+  'Gas Giant': {
+    a: '#c8b0e8', b: '#ffc8a8', c: '#f8e8d0', rim: '#ffe6f0', seed: 5,
+    planet: { tiltDeg: 25, spinDegPerSec: 11.5, ringOpacity: 0.85, ringInner: 1.3, ringOuter: 2.15, ringColorA: '#ffc8a8', ringColorB: '#f8e8d0' },
+    material: { clearCoat: 0.4, clearCoatRoughness: 0.15, fuzzAmount: 0.2, fuzzColor: '#ffffff' },
+  },
+  Ice: {
+    a: '#cfe8ff', b: '#a8d0f0', c: '#6a90c8', rim: '#cff4ff', seed: 6,
+    material: { clearCoat: 0.6, clearCoatRoughness: 0.05, subsurfaceColor: '#3a6ea8', subsurfaceOpacity: 0.4 },
+  },
+  Lava: { a: '#3a2a30', b: '#2a2438', c: '#3a2a30', rim: '#ff7a40', seed: 7 },
+  // Unlit: the recipe already paints the rim colour on the edge; the halo is the atmosphere shell.
+  'Neon Star': {
+    a: '#ff4fb0', b: '#ffb040', c: '#fff6d0', rim: '#40f0ff', seed: 2,
+    planet: { spinDegPerSec: 8.6, atmoColor: '#40f0ff', atmoIntensity: 0.9, atmoThickness: 0.3, atmoSunset: 0 },
+    stylized: { rimIntensity: 0, rimWidth: 0.3 },
+  },
+  'Candy Stripe': {
+    a: '#ff9ec8', b: '#9ef0d0', c: '#ffffff', rim: '#ffe0f0', seed: 1,
+    material: { clearCoat: 1, clearCoatRoughness: 0.04, subsurfaceColor: '#7a2a50', subsurfaceOpacity: 0.6 },
+  },
+  'Mushroom Dots': {
+    a: '#e8434a', b: '#fff4e8', c: '#fff4e8', rim: '#ffe0d0', seed: 4,
+    material: { clearCoat: 0.2, clearCoatRoughness: 0.08, fuzzAmount: 0.5, fuzzColor: '#fff4e8' }, // fuzz on the dots only
+  },
+  Crystal: {
+    a: '#a070f0', b: '#50d8f0', c: '#f0e0ff', rim: '#d0c0ff', seed: 6,
+    planet: { spinDegPerSec: 11.5 },
+    material: { clearCoat: 1, clearCoatRoughness: 0.03, subsurfaceColor: '#3a2a80', subsurfaceOpacity: 0.6 },
+  },
+  Desert: {
+    a: '#f0a860', b: '#e08848', c: '#c06838', rim: '#ffc080', seed: 8,
+    material: { fuzzAmount: 0.3, fuzzColor: '#ffd9a8' },
+    stylized: { rimWidth: 0.3 },
+  },
+  Aurora: {
+    a: '#1a2050', b: '#283070', c: '#283070', rim: '#6080ff', seed: 10,
+    material: { clearCoat: 0.3, clearCoatRoughness: 0.08 },
+  },
+  'Moon Rock': { a: '#a8a8b8', b: '#8c8ca0', c: '#6a6a80', rim: '#e0e0ff', seed: 14, stylized: { rimWidth: 0.15 } },
+  Jelly: {
+    a: '#ff8fc8', b: '#ffc0e0', c: '#fff0f8', rim: '#ffe0f0', seed: 15,
+    material: { clearCoat: 1, clearCoatRoughness: 0.03, subsurfaceColor: '#ff4f9a', subsurfaceOpacity: 0.2 },
+  },
+  Machine: { a: '#c8ccd8', b: '#8fd0ff', c: '#ff6fb0', rim: '#d0e8ff', seed: 16 },
+  'Cotton Cloud': {
+    a: '#ffffff', b: '#d8c8f8', c: '#ffffff', rim: '#ffffff', seed: 17,
+    material: { fuzzAmount: 0.6, fuzzColor: '#f4eeff', fuzzRoughness: 0.6, subsurfaceColor: '#6a5aa8', subsurfaceOpacity: 0.5 },
+  },
+};
+
+const recipePbr = Object.entries(RECIPES).map(([name, r], i): [string, PlanetPreset] => [`PBR ${name}`, {
+  group: 'Stylized PBR v2.1',
+  planet: {
+    recipe: i + 1, seed: r.seed, bump: 1.2, tiltDeg: 20, spinDegPerSec: 17, lowColor: r.a, midColor: r.b, highColor: r.c,
+    atmoIntensity: 0, ...r.planet,
+  },
+  material: r.material,
+  stylized: look(0, '#ffffff', r.rim, r.stylized),
 }]);
 
 // v1.0: stepped diffuse only (10% PBR residual), hard rim, inverted-hull outline, no shading layers.
@@ -478,5 +549,5 @@ const grouped = (group: string, presets: Record<string, PlanetPreset>) =>
   Object.entries(presets).map(([name, p]): [string, PlanetPreset] => [name, { ...p, group }]);
 
 export const GALLERY_PRESETS: Record<string, PlanetPreset> = Object.fromEntries([
-  ...grouped('Polyhedra v5.0', POLYHEDRA), ...grouped('Toy Squadron v4.0', TOYS), ...stylizedPbr, ...pureToon, ...grouped('New Ideas v3.0', IDEAS), ...grouped('Cat-Ear v1.0', CATS),
+  ...grouped('Polyhedra v5.0', POLYHEDRA), ...recipePbr, ...grouped('Toy Squadron v4.0', TOYS), ...stylizedPbr, ...pureToon, ...grouped('New Ideas v3.0', IDEAS), ...grouped('Cat-Ear v1.0', CATS),
 ]);

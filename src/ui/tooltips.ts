@@ -1,6 +1,8 @@
 // Hover text for panel rows, keyed by the param key. User-facing copy is zh-HK; labels stay English.
 export const TOOLTIPS: Record<string, string> = {
   // Object / presets
+  recipe: 'Stylized PBR v2.1 配方：1–15 以設計文件 v2.0 的整套程序化通道（Albedo、Height、Roughness、Metallic、AO、Emissive、Fuzz 遮罩）取代整個表面。0 = 關閉，使用下方的參數化表面。\n只讀取 Seed、Height (Bump)、Height AO 及 Low / Mid / High Color（= A / B / C）。',
+  channel: '只顯示一個通道，用來核對配方。normal 為 view space；cc-sss-fuzz：紅 = Clear Coat、綠 = Subsurface、藍 = Fuzz。此檢視不經 Tone Mapping 及 Bloom。',
   shape: '測試用的基本幾何體。',
 
   // Default Lit

@@ -146,6 +146,9 @@ export const SKY = {
 };
 
 // Order = morph target index; the atmosphere SDF uses the same ids.
+// Debug channel view of the planet surface; the index is the shader's uChannelView.
+export const CHANNEL_VIEWS = ['final', 'albedo', 'height', 'normal', 'roughness', 'metallic', 'ao', 'emissive', 'cc-sss-fuzz'] as const;
+
 export const PLANET_SHAPES = ['sphere', 'ellipsoid', 'dodecahedron', 'icosahedron', 'torus', 'starTorus', 'roundCube'] as const;
 export type PlanetShapeName = (typeof PLANET_SHAPES)[number];
 
@@ -195,6 +198,9 @@ export const PLANET_DEFAULTS = {
   scanWidth: 0.08, // glowing band below the front, in object heights
   scanSeconds: 2.5,
   scanOnSelect: 0, // 1 = the scan plays when this preset is selected (holograms); other planets appear at once
+  // Stylized PBR v2.1: 1..15 replaces the whole surface with one recipe of the design canvas (src/shaders/planetRecipe.ts).
+  // It reads only Seed, Height (Bump), Height AO and Low / Mid / High Color (= A / B / C); the ring and the layers still apply.
+  recipe: 0,
   // Terrain
   seed: 0,
   noiseScale: 1.4,
@@ -682,6 +688,7 @@ export const RANGES: Record<string, Range> = {
   earAngleDeg: { min: -20, max: 40, step: 1 },
   earFlatDeg: { min: 0, max: 60, step: 1 },
   toggle: { min: 0, max: 1, step: 1 },
+  recipe: { min: 0, max: 15, step: 1 },
   renderScale: { min: 0.5, max: 2, step: 0.05 },
 };
 
