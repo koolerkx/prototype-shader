@@ -31,13 +31,13 @@ const createUniforms = () => ({
   uSubsurfaceOpacity: { value: 0.5 },
 });
 
-function replaceOnce(src: string, find: string, replacement: string): string {
+export function replaceOnce(src: string, find: string, replacement: string): string {
   // Fails loudly if a three upgrade renames the chunk text we patch.
   if (!src.includes(find)) throw new Error(`stylized patch: "${find}" not found`);
   return src.replace(find, replacement);
 }
 
-const after = (src: string, find: string, code: string) => replaceOnce(src, find, `${find}\n${code}`);
+export const after = (src: string, find: string, code: string) => replaceOnce(src, find, `${find}\n${code}`);
 
 /** Adds the material-level NPR layer and the subsurface term. With uStylize = 0 and black subsurface it is plain PBR. */
 export function addStylizedLayer(m: THREE.MeshPhysicalMaterial): StylizedUniforms {

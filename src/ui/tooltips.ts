@@ -46,6 +46,70 @@ export const TOOLTIPS: Record<string, string> = {
   rimSoftness: '邊緣光內側邊界的柔和度。0 = 硬邊。',
   rimLightSide: '邊緣光出現的位置：-1 = 只在背光面，0 = 全部，1 = 只在受光面。',
 
+  // App mode
+  appMode: 'material：單一物件的材質測試（原有功能）。\nplanet：程序化星球表面。兩個模式各自保存 Material、NPR 及 Lighting 參數（planet 模式預設的 Sky Intensity 較低），切換時不會互相覆蓋。',
+
+  // Planet: shape and motion
+  planetShape: '星球的形狀。表面圖案以 3D noise 按物件方向取樣，所以任何形狀都沒有接縫。',
+  planetPreset: '載入一組星球預設（會覆蓋 Planet、Material 及 NPR 參數，燈光不變）。',
+  tiltDeg: '自轉軸的傾斜角度（度）。光環跟隨傾斜。',
+  spinDegPerSec: '自轉速度（度／秒）（UE: Rotating Movement）。',
+  timeScale: '所有動畫的時間倍數：自轉、雲層、氣體帶流動、岩漿脈動。0 = 暫停。',
+
+  // Planet: terrain
+  seed: '隨機種子。改變數值會得到另一個地形分佈。',
+  noiseScale: '地形 noise 的頻率。數值越高，大陸越細碎。',
+  warp: 'Domain warp 的強度：扭曲 noise 的座標，令海岸線及雲帶出現漩渦形狀。',
+  detail: 'fbm 的層數（octaves）。數值越高，細節越多，運算量亦越高。',
+  bump: '以地形高度計算的凹凸強度（UE: PerturbNormalHQ / DDX、DDY）。海面及雲層不受影響。',
+
+  // Planet: ocean and land
+  seaLevel: '海平面高度。低於此高度為海洋。0 = 沒有海洋。',
+  deepColor: '深海顏色。',
+  shallowColor: '淺海（近岸）顏色。',
+  lowColor: '低地顏色（陸地高度漸變的起點）。',
+  midColor: '中高度顏色。',
+  highColor: '高山顏色（陸地高度漸變的終點）。',
+  oceanRoughness: '海面粗糙度。數值越低，太陽的反光越集中。',
+  landRoughness: '陸地粗糙度。',
+  polarCap: '極地冰帽的範圍。0 = 沒有冰帽，1 = 整個星球。',
+  iceColor: '冰帽顏色。',
+
+  // Planet: bands
+  bands: '氣體巨行星的條紋比例：以緯度條紋取代地形高度。0 = 純地形，1 = 純條紋。條紋使用陸地的三個顏色。',
+  bandFrequency: '條紋的數量。',
+  bandTurbulence: '條紋的擾動強度。數值越高，條紋越彎曲。',
+  bandSpeedDegPerSec: '條紋流動速度（度／秒）。赤道較快、兩極較慢，所以條紋會隨時間被拉長。',
+
+  // Planet: clouds
+  cloudCover: '雲層覆蓋率。0 = 沒有雲。',
+  cloudSoftness: '雲層邊緣的柔和度。',
+  cloudScale: '雲層 noise 的頻率。',
+  cloudSpeedDegPerSec: '雲層相對地表的移動速度（度／秒）。',
+  cloudColor: '雲層顏色。雲層會遮蓋城市燈光，並減弱岩漿的光。',
+
+  // Planet: glow and lights
+  glowColor: '岩漿／發光區域的顏色（Emissive）。',
+  glowIntensity: '發光強度。0 = 關閉。',
+  glowLevel: '低於此高度的地區會發光（岩漿海或發光海）。0 = 關閉。',
+  glowCracks: '地殼裂縫發光的強度（ridged noise）。',
+  glowPulse: '發光的脈動幅度。0 = 固定亮度。',
+  cityColor: '城市燈光的顏色。',
+  cityIntensity: '城市燈光強度。只在背光面的陸地出現（UE: MPC 太陽方向 + Emissive）。',
+  cityDensity: '城市的分佈密度。',
+
+  // Planet: atmosphere
+  atmoColor: '大氣層外殼的顏色。外殼是一個稍大、加法混合的半透明網格（UE: Translucent Additive Unlit）。',
+  atmoIntensity: '大氣層的亮度。受光面較亮。0 = 關閉。',
+  atmoThickness: '大氣層外殼的厚度（以星球半徑計算）。',
+
+  // Planet: ring
+  ringOpacity: '光環的不透明度。0 = 隱藏光環。光環會接收星球的投影（以球體測試計算）。',
+  ringInner: '光環的內半徑（以星球半徑計算）。',
+  ringOuter: '光環的外半徑（以星球半徑計算）。',
+  ringColorA: '光環的內側顏色。',
+  ringColorB: '光環的外側顏色。',
+
   // Lighting
   sunColor: '太陽光（Directional Light）的顏色。',
   sunIntensity: '太陽光的強度。',
