@@ -174,6 +174,9 @@ export const TOOLTIPS: Record<string, string> = {
   outlineWidth: 'Inverted hull 描邊的闊度（螢幕像素）。0 = 關閉。描邊跟隨形狀變形（UE: 第二個 mesh 或材質槽，WPO 沿法線推出，反轉 culling）。',
   outlineColor: '描邊顏色。',
 
+  // Performance
+  renderScale: '每個 CSS 像素渲染多少個像素（pixel ratio）。預設上限 1.5；Retina 螢幕用 2 會令 GPU 時間增加約 1.8 倍。只影響預覽，不會存入預設。',
+
   // Lighting
   sunColor: '太陽光（Directional Light）的顏色。',
   sunIntensity: '太陽光的強度。',

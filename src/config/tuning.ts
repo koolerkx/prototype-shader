@@ -568,6 +568,7 @@ export const RANGES: Record<string, Range> = {
   shieldHexCount: { min: 6, max: 64, step: 1 },
   shieldHitRate: { min: 0, max: 3, step: 0.05 },
   outlineWidth: { min: 0, max: 8, step: 0.1 },
+  renderScale: { min: 0.5, max: 2, step: 0.05 },
 };
 
 export const VIEW = {
@@ -580,4 +581,5 @@ export const VIEW = {
   sunDistance: 10,
   shadowExtent: 3,
   shadowMapSize: 2048,
+  maxRenderScale: 1.5, // default pixel-ratio cap; 2 on a Retina screen costs about 1.8x the GPU time
 };

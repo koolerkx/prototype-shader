@@ -15,7 +15,7 @@ export type PlanetUniforms = ReturnType<typeof createUniforms>;
 const createUniforms = () => ({
   uPlanet: { value: 0 },
   uPlanetTime: { value: 0 },
-  uPlanetObjToView: { value: new THREE.Matrix3() }, // per frame; turns the object-space height gradient into view space
+  uPlanetObjToView: { value: new THREE.Matrix3() }, // per frame; its transpose brings the sun into object space (cloud shadow)
   uPlanetInvRadius: { value: 1 / PLANET_VIEW.radius },
   uScanProgress: { value: 1 },
   uScanRange: { value: new THREE.Vector2(-1, 1) }, // object-space y range of the current shape
@@ -286,10 +286,13 @@ export function applyOrbits(orbits: Orbits, p: PlanetParams): void {
   orbitMeshes(orbits).forEach((mesh, i) => {
     const layout = ORBIT_LAYOUT[i];
     mesh.visible = i < p.orbitCount && p.orbitIntensity > 0;
-    // Rebuilt on change so the tube keeps its width at any radius.
+    // Rebuilt only when the radius changes (not on every slider move), so the tube keeps its width at any radius.
     const radius = (p.orbitRadius + i * p.orbitSpacing) * PLANET_VIEW.radius;
-    mesh.geometry.dispose();
-    mesh.geometry = new THREE.TorusGeometry(radius, PLANET_VIEW.orbitTube, 6, 256).rotateX(-Math.PI / 2);
+    if (mesh.userData.radius !== radius) {
+      mesh.userData.radius = radius;
+      mesh.geometry.dispose();
+      mesh.geometry = new THREE.TorusGeometry(radius, PLANET_VIEW.orbitTube, 6, 256).rotateX(-Math.PI / 2);
+    }
     mesh.rotation.set(0, layout.yawDeg * DEG2RAD, 0);
     mesh.rotateX(p.orbitInclinationDeg * layout.tilt * DEG2RAD);
     const u = mesh.material.uniforms;

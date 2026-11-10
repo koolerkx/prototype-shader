@@ -29,7 +29,7 @@ const panelRoot = document.getElementById('panel')!;
 
 // --- Renderer / scene / camera ---
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, VIEW.maxRenderScale));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true;
 renderer.autoClear = false; // ViewHelper draws on top of the main pass
@@ -659,6 +659,14 @@ ui.range('Sky Intensity', lightParams, 'skyIntensity', RANGES.skyIntensity, appl
 ui.section('Post');
 ui.select('Tone Mapping', lightParams, 'toneMapping', TONE_MAPPINGS, applyLight);
 ui.range('Exposure', lightParams, 'exposure', RANGES.exposure, applyLight);
+
+// View setting, not part of presets: pixels rendered per CSS pixel.
+const viewParams = { renderScale: renderer.getPixelRatio() };
+ui.section('Performance');
+ui.range('Render Scale', viewParams, 'renderScale', RANGES.renderScale, () => {
+  renderer.setPixelRatio(viewParams.renderScale);
+  renderer.setSize(viewport.clientWidth, viewport.clientHeight);
+});
 
 function showModeControls() {
   for (const el of stylizedSections) el.hidden = styleParams.mode !== 'stylized';

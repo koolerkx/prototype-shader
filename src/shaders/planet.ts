@@ -218,18 +218,18 @@ float planetReliefHeight( float h ) {
 }
 
 // Cloud coverage at a point; clouds drift around the spin axis relative to the ground.
-float planetClouds( vec3 pos ) {
+float planetClouds( vec3 pos, float octaves ) {
 	float t = uPlanetTime;
 	vec3 cp = planetRotY( pos, t * uCloudSpeed ) * uCloudScale + uSeed + 31.7;
 	float cw = planetNoise( cp * 0.5 + vec3( t * 0.05 ) );
-	float c = saturate( planetFbm( cp + cw * 0.5, 5.0 ) * 0.8 + 0.5 );
+	float c = saturate( planetFbm( cp + cw * 0.5, octaves ) * 0.8 + 0.5 );
 	return smoothstep( 1.0 - uCloudCover, 1.0 - uCloudCover + uCloudSoftness + 1e-3, c );
 }
 `;
 
 // After <color_fragment>, before the stylized albedo gradient. Writes Base Color and the values later blocks use.
 export const PLANET_ALBEDO = /* glsl */ `
-vec3 planetGrad = vec3( 0.0 ); // object-space height gradient for the normal
+float planetReliefH = 0.0; // height for the normal (liquids flat)
 float planetRelief = 0.0; // relief strength mask: 0 under clouds
 float planetRough = 1.0;
 float planetMetal = 0.0; // panel metallic mask
@@ -256,20 +256,8 @@ if ( uPlanet > 0.5 ) {
 	float h = planetHeight( pos, n, warp, terrain, seam, cellHash );
 	planetFilm = saturate( h );
 
-	// Height gradient by forward differences in the tangent plane (2 extra height samples).
-	// UE: the same height, baked to a texture, gives the normal map (NormalFromHeightmap).
-	if ( uBump > 0.0 ) {
-		vec3 tx = normalize( cross( abs( n.y ) < 0.99 ? vec3( 0.0, 1.0, 0.0 ) : vec3( 1.0, 0.0, 0.0 ), n ) );
-		vec3 ty = cross( n, tx );
-		const float e = 0.002;
-		vec3 w;
-		float a, b, c;
-		float h0 = planetReliefHeight( h );
-		float hx = planetReliefHeight( planetHeight( pos + tx * e, n, w, a, b, c ) );
-		float hy = planetReliefHeight( planetHeight( pos + ty * e, n, w, a, b, c ) );
-		planetGrad = ( tx * ( hx - h0 ) + ty * ( hy - h0 ) ) / e;
-		planetRelief = 1.0;
-	}
+	planetReliefH = planetReliefHeight( h );
+	planetRelief = 1.0;
 
 	// Ocean and land height ramps.
 	float edge = fwidth( h ) + 1e-3;
@@ -332,11 +320,11 @@ if ( uPlanet > 0.5 ) {
 	}
 
 	if ( uCloudCover > 0.0 ) {
-		float cloud = planetClouds( pos );
+		float cloud = planetClouds( pos, 4.0 );
 		// Cloud shadow: the cloud between this point and the sun (UE: second cloud sample offset by the MPC sun direction).
 		if ( uCloudShadow > 0.0 ) {
 			vec3 sunObj = normalize( transpose( uPlanetObjToView ) * uSunDirView );
-			float shade = planetClouds( pos + sunObj * 0.06 ) * smoothstep( - 0.1, 0.2, dot( n, sunObj ) );
+			float shade = planetClouds( pos + sunObj * 0.06, 2.0 ) * smoothstep( - 0.1, 0.2, dot( n, sunObj ) ); // soft: 2 octaves are enough
 			col *= 1.0 - uCloudShadow * 0.75 * shade * ( 1.0 - cloud );
 		}
 		col = mix( col, uCloudColor, cloud );
@@ -370,9 +358,21 @@ if ( uPlanet > 0.5 ) metalnessFactor = mix( metalnessFactor, uPanelMetallic, pla
 
 // After <normal_fragment_maps>, before the stylized normal soften. Tilts the normal against the height gradient;
 // uBump = 1 means a relief of 5% of the radius, so the silhouette stays round and only the shading changes.
+// Surface gradient from screen-space derivatives (Mikkelsen) with unnormalised position derivatives, so the
+// strength does not change with zoom; it costs no extra height samples. UE: bake the height to a normal map.
 export const PLANET_NORMAL = /* glsl */ `
 if ( uPlanet > 0.5 && uBump > 0.0 ) {
-	normal = normalize( normal - ( uPlanetObjToView * planetGrad ) * ( uBump * 0.05 * planetRelief ) );
+	vec3 dpdx = dFdx( - vViewPosition );
+	vec3 dpdy = dFdy( - vViewPosition );
+	vec3 r1 = cross( dpdy, normal );
+	vec3 r2 = cross( normal, dpdx );
+	float det = dot( dpdx, r1 );
+	vec3 surfGrad = ( dFdx( planetReliefH ) * r1 + dFdy( planetReliefH ) * r2 ) * ( sign( det ) / max( abs( det ), 1e-12 ) );
+	// Height is in planet radii, the gradient is per view unit: scale by the radius.
+	vec3 tilt = surfGrad * ( uBump * 0.05 * planetRelief / uPlanetInvRadius );
+	float tiltLen = length( tilt );
+	if ( tiltLen > 1.5 ) tilt *= 1.5 / tiltLen; // steep pixels (crater rims, seams) must not turn the normal away
+	normal = normalize( normal - tilt );
 }
 `;
 
@@ -508,13 +508,13 @@ void main() {
 	float t = max( - b - s, 0.0 ) + fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) ) * H * 0.3;
 	float depth = 0.0;
 	vec3 tint = vec3( 0.0 );
-	// Adaptive steps: half the distance to the surface, never below 0.3 scale heights. Fixed steps band badly.
-	for ( int i = 0; i < 96; i ++ ) {
+	// Adaptive steps: half the distance to the surface, never below 0.4 scale heights. Fixed steps band badly.
+	for ( int i = 0; i < 64; i ++ ) {
 		if ( t >= tEnd ) break;
 		vec3 p = ro + rd * t;
 		float d = sdfPlanet( p );
 		if ( d < 0.0 ) break;
-		float dt = min( max( d * 0.5, H * 0.3 ), tEnd - t );
+		float dt = min( max( d * 0.5, H * 0.4 ), tEnd - t );
 		t += dt;
 		float dens = exp( - d / H ) * dt / H;
 		float mu = dot( normalize( p ), uSunObj );
