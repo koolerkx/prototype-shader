@@ -383,9 +383,100 @@ const TOYS: Record<string, PlanetPreset> = {
   }, { clearCoat: 0.9, clearCoatRoughness: 0.14 }, { shadeStrength: 0.3 }),
 };
 
+// --- Polyhedra v5.0: the two flat-faced shapes. The faces already give the facets, so the surfaces stay simple:
+// low bump, few tones, and a glossy coat so every face catches its own highlight. ---
+const POLYHEDRA: Record<string, PlanetPreset> = {
+  // Capsule-toy die: candy plastic with cream dots.
+  'Lucky D12': {
+    shape: 'dodecahedron',
+    planet: {
+      tiltDeg: 20, spinDegPerSec: 14, seaLevel: 0, detail: 1, bump: 0.5, heightAO: 0, lowColor: '#ff5f8a', midColor: '#ff5f8a',
+      highColor: '#ff5f8a', landRoughness: 0.28, cellScale: 2.4, cellDots: 1, cellDotSize: 0.34, cellColor: '#fff6e0', sparkle: 0.6,
+      atmoColor: '#ffc0d8', atmoIntensity: 0.4,
+    },
+    material: PLASTIC,
+    stylized: toyLook(0.5, '#a060c8', '#ffe0ee', { outlineWidth: 1.5, outlineColor: '#7a1f48' }),
+  },
+  'Honey Gem': {
+    shape: 'dodecahedron',
+    planet: {
+      tiltDeg: 30, spinDegPerSec: 8, seaLevel: 0, noiseScale: 1, detail: 1, warp: 0.6, flowSpeed: 0.08, bump: 0.15, heightAO: 0,
+      lowColor: '#e07a10', midColor: '#f5a828', highColor: '#ffd870', landRoughness: 0.1, sparkle: 0.4,
+      atmoColor: '#ffd98a', atmoIntensity: 0.7,
+    },
+    material: { clearCoat: 1, clearCoatRoughness: 0.05, subsurfaceColor: '#6a2405', subsurfaceOpacity: 0.4 },
+    stylized: look(0.35, '#b0508a', '#fff0c0', { rimIntensity: 0.9 }),
+  },
+  // Ace Combat station: armour plates, warning orange, shield and patrol orbits.
+  'Bastion D12': {
+    shape: 'dodecahedron',
+    planet: {
+      tiltDeg: 18, spinDegPerSec: 5, seaLevel: 0, warp: 0.2, terrace: 1, panels: 1, panelScale: 4, panelSeam: 0.012, panelMetallic: 0.5,
+      bump: 1, lowColor: '#3f4a66', midColor: '#ff8a2a', highColor: '#5a6888', landRoughness: 0.35, bevel: 0.6,
+      cityColor: '#ffd08a', cityIntensity: 3, cityDensity: 0.45, neonColor: '#5fd8ff', neonColorB: '#5fd8ff', neonIntensity: 2.5,
+      neonSeams: 1, neonSpeed: 1.5, shieldIntensity: 0.8, shieldColor: '#5fd8ff', shieldRadius: 1.35, shieldHexCount: 20,
+      atmoColor: '#5fd8ff', atmoIntensity: 0.3, orbitCount: 2, orbitRadius: 1.7, orbitColor: '#ff8a2a', orbitColorB: '#5fd8ff',
+      orbitPulses: 2, orbitPulseLength: 0.2, orbitSpeedDegPerSec: 90,
+    },
+    material: { clearCoat: 0.6, clearCoatRoughness: 0.14 },
+    stylized: toyLook(0.35, '#4a5ad0', '#9fe8ff', { shadeStrength: 0.22, rimLightSide: -0.5 }),
+  },
+  'Holo Beacon': {
+    shape: 'dodecahedron',
+    planet: {
+      tiltDeg: 25, spinDegPerSec: 18, seaLevel: 0, bump: 0, lowColor: '#120a24', midColor: '#120a24', highColor: '#120a24',
+      landRoughness: 0.4, bubble: 1, neonGrid: 1.4, neonColor: '#ff6ad8', scanColor: '#ff6ad8', scanOnSelect: 1,
+      atmoColor: '#ff6ad8', atmoIntensity: 0.6, atmoSunset: 0,
+      orbitCount: 2, orbitRadius: 1.4, orbitInclinationDeg: 30, orbitColor: '#ff6ad8', orbitColorB: '#6af0ff', orbitIntensity: 1.2, orbitPulses: 3,
+    },
+    stylized: look(0, '#ffffff', '#ff6ad8', { rimIntensity: 1, rimWidth: 0.35, rimSoftness: 0.3, rimLightSide: 0 }),
+  },
+  // Tabletop d20: deep purple resin with gold glitter.
+  'Crit D20': {
+    shape: 'icosahedron',
+    planet: {
+      tiltDeg: 22, spinDegPerSec: 16, seaLevel: 0, noiseScale: 1.2, detail: 1, warp: 0.8, flowSpeed: 0.05, bump: 0.1, heightAO: 0,
+      lowColor: '#24104f', midColor: '#5a2ab8', highColor: '#c860e8', landRoughness: 0.12, sparkle: 1,
+      atmoColor: '#c08aff', atmoIntensity: 0.6, orbitCount: 1, orbitRadius: 1.5, orbitInclinationDeg: 18, orbitColor: '#ffd84a', orbitPulses: 3,
+    },
+    material: { clearCoat: 1, clearCoatRoughness: 0.05, subsurfaceColor: '#3a1070', subsurfaceOpacity: 0.4 },
+    stylized: toyLook(0.4, '#4a2a90', '#e0c0ff', { rimIntensity: 0.9 }),
+  },
+  'Ice Shard': {
+    shape: 'icosahedron',
+    planet: {
+      tiltDeg: 35, spinDegPerSec: 6, seaLevel: 0, noiseScale: 1.5, detail: 2, bump: 0.3, lowColor: '#cfe8ff', midColor: '#a8d0f0',
+      highColor: '#ffffff', landRoughness: 0.1, cellScale: 3.5, cellCracks: 1, cellCrackWidth: 0.04, cellColor: '#6a90c8',
+      atmoColor: '#cff4ff', atmoIntensity: 0.7,
+    },
+    material: { clearCoat: 1, clearCoatRoughness: 0.04, thinFilm: 0.7, thinFilmThicknessNm: 480, subsurfaceColor: '#3a6ea8', subsurfaceOpacity: 0.5 },
+    stylized: look(0.3, '#7088e0', '#cff4ff', { rimIntensity: 0.9, rimWidth: 0.3 }),
+  },
+  'Ember Geode': {
+    shape: 'icosahedron',
+    planet: {
+      tiltDeg: 15, spinDegPerSec: 7, seaLevel: 0, noiseScale: 2, detail: 2, bump: 0.8, lowColor: '#2c2030', midColor: '#3a2a38',
+      highColor: '#4a3440', landRoughness: 0.85, cellScale: 2.6, cellCrackWidth: 0.07, cellGlow: 2.4, cellGlowColor: '#ff5a1a',
+      atmoColor: '#ff8a4a', atmoIntensity: 0.6,
+    },
+    stylized: look(0.5, '#5a3060', '#ff8a4a', { rimLightSide: -0.5 }),
+  },
+  // Folded paper: matte, two flat pastel tones, soft fuzz on the edges.
+  'Origami Moon': {
+    shape: 'icosahedron',
+    planet: {
+      tiltDeg: 28, spinDegPerSec: 10, swayDeg: 0, seaLevel: 0, bands: 1, bandFrequency: 1.5, bandTurbulence: 0, bandSpeedDegPerSec: 0,
+      terrace: 1, bump: 0, heightAO: 0, lowColor: '#ffd6e4', midColor: '#fff8ea', highColor: '#bfe6ff', landRoughness: 1,
+      atmoColor: '#fff0f6', atmoIntensity: 0.3,
+    },
+    material: { fuzzAmount: 0.4, fuzzColor: '#ffffff', fuzzRoughness: 0.7 },
+    stylized: look(0.7, '#b8a0e0', '#ffffff', { rimIntensity: 0.4, outlineWidth: 1.2, outlineColor: '#8a7ab8' }),
+  },
+};
+
 const grouped = (group: string, presets: Record<string, PlanetPreset>) =>
   Object.entries(presets).map(([name, p]): [string, PlanetPreset] => [name, { ...p, group }]);
 
 export const GALLERY_PRESETS: Record<string, PlanetPreset> = Object.fromEntries([
-  ...grouped('Toy Squadron v4.0', TOYS), ...stylizedPbr, ...pureToon, ...grouped('New Ideas v3.0', IDEAS), ...grouped('Cat-Ear v1.0', CATS),
+  ...grouped('Polyhedra v5.0', POLYHEDRA), ...grouped('Toy Squadron v4.0', TOYS), ...stylizedPbr, ...pureToon, ...grouped('New Ideas v3.0', IDEAS), ...grouped('Cat-Ear v1.0', CATS),
 ]);
