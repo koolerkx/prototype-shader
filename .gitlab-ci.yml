@@ -1,0 +1,14 @@
+pages:
+  image: node:22
+  rules:
+    - if: $CI_COMMIT_BRANCH == "prod"
+  script:
+    - corepack enable
+    - yarn install --immutable
+    # Relative base: the site is served under /<project-name>/ on GitLab Pages.
+    - yarn build --base=./
+  pages:
+    publish: dist
+  artifacts:
+    paths:
+      - dist
